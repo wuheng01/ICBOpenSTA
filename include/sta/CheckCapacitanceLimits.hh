@@ -71,12 +71,14 @@ protected:
                          float &capacitance1,
                          float &limit1,
                          float &slack1) const;
+public:
   void findLimit(const Pin *pin,
                  const Corner *corner,
 		 const MinMax *min_max,
 		 // Return values.
 		 float &limit,
 		 bool &limit_exists) const;
+protected:
   void checkCapLimits(Instance *inst,
                       bool violators,
                       const Corner *corner,
