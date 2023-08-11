@@ -170,16 +170,32 @@ SpefReader::setBusBrackets(char left, char right)
   bus_brkt_right_ = right;
 }
 
+// defined in `SdfReader.cc`
+std::string
+removeSlash(std::string const& name);
+
 Instance *
 SpefReader::findInstanceRelative(const char *name)
 {
-  return network_->findInstanceRelative(instance_, name);
+  Instance* inst = network_->findInstanceRelative(instance_, name);
+  if (!inst) {
+    std::string no_slash = removeSlash(name);
+    inst = network_->findInstanceRelative(instance_, no_slash.c_str());
+  }
+  return inst;
+  // return network_->findInstanceRelative(instance_, name);
 }
 
 Net *
 SpefReader::findNetRelative(const char *name)
 {
-  return network_->findNetRelative(instance_, name);
+  Net* net = network_->findNetRelative(instance_, name);
+  if (!net) {
+    std::string no_slash = removeSlash(name);
+    net = network_->findNetRelative(instance_, no_slash.c_str());
+  }
+  return net;
+  // return network_->findNetRelative(instance_, name);
 }
 
 Pin *
