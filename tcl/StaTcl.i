@@ -4781,21 +4781,36 @@ report_delay_calc_cmd(Edge *edge,
 
 ////////////////////////////////////////////////////////////////
 
+#define PinSeqInit(NAME) \
+static PinSeq* seq_##NAME = nullptr; \
+static void deleteTmpPinSeq_##NAME() { delete seq_##NAME; }
+
+#define PinSeqDeclare(seq, NAME) \
+PinSeq* seq = seq_##NAME;   \
+if (!seq) atexit(deleteTmpPinSeq_##NAME);
+
+PinSeqInit(check_slew_limits)
 PinSeq *
 check_slew_limits(Net *net,
                   bool violators,
                   const Corner *corner,
                   const MinMax *min_max)
 {
+  PinSeqDeclare(seq, check_slew_limits);
+  delete seq;
   cmdLinkedNetwork();
-  return Sta::sta()->checkSlewLimits(net, violators, corner, min_max);
+  seq = Sta::sta()->checkSlewLimits(net, violators, corner, min_max);
+  return seq;
 }
 
 size_t
 max_slew_violation_count()
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkSlewLimits(nullptr, true, nullptr, MinMax::max())->size();
+  PinSeq * seq = Sta::sta()->checkSlewLimits(nullptr, true, nullptr, MinMax::max());
+  size_t sz = seq->size();
+  delete seq;
+  return sz;
 }
 
 void
@@ -4822,20 +4837,27 @@ report_slew_limit_verbose(Pin *pin,
 
 ////////////////////////////////////////////////////////////////
 
+PinSeqInit(check_fanout_limits)
 PinSeq *
 check_fanout_limits(Net *net,
                     bool violators,
                     const MinMax *min_max)
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkFanoutLimits(net, violators, min_max);
+  PinSeqDeclare(seq, check_fanout_limits);
+  delete seq;
+  seq = Sta::sta()->checkFanoutLimits(net, violators, min_max);
+  return seq;
 }
 
 size_t
 max_fanout_violation_count()
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkFanoutLimits(nullptr, true, MinMax::max())->size();
+  PinSeq * seq = Sta::sta()->checkFanoutLimits(nullptr, true, MinMax::max());
+  size_t sz = seq->size();
+  delete seq;
+  return sz;
 }
 
 void
@@ -4860,6 +4882,7 @@ report_fanout_limit_verbose(Pin *pin,
 
 ////////////////////////////////////////////////////////////////
 
+PinSeqInit(check_capacitance_limits)
 PinSeq *
 check_capacitance_limits(Net *net,
                          bool violators,
@@ -4867,14 +4890,20 @@ check_capacitance_limits(Net *net,
                          const MinMax *min_max)
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkCapacitanceLimits(net, violators, corner, min_max);
+  PinSeqDeclare(seq, check_capacitance_limits);
+  delete seq;
+  seq = Sta::sta()->checkCapacitanceLimits(net, violators, corner, min_max);
+  return seq;
 }
 
 size_t
 max_capacitance_violation_count()
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkCapacitanceLimits(nullptr, true,nullptr,MinMax::max())->size();
+  PinSeq * seq = Sta::sta()->checkCapacitanceLimits(nullptr, true,nullptr,MinMax::max());
+  size_t sz = seq->size();
+  delete seq;
+  return sz;
 }
 
 void

@@ -1141,10 +1141,10 @@ public:
 		       Instance *parent);
   virtual void deleteNet(Net *net);
   // connect_net
-  virtual void connectPin(Instance *inst,
+  virtual Pin* connectPin(Instance *inst,
 			  Port *port,
 			  Net *net);
-  virtual void connectPin(Instance *inst,
+  virtual Pin* connectPin(Instance *inst,
 			  LibertyPort *port,
 			  Net *net);
   // disconnect_net

@@ -4025,7 +4025,7 @@ Sta::deleteNet(Net *net)
   network->deleteNet(net);
 }
 
-void
+Pin*
 Sta::connectPin(Instance *inst,
 		Port *port,
 		Net *net)
@@ -4033,9 +4033,10 @@ Sta::connectPin(Instance *inst,
   NetworkEdit *network = networkCmdEdit();
   Pin *pin = network->connect(inst, port, net);
   connectPinAfter(pin);
+  return pin;
 }
 
-void
+Pin*
 Sta::connectPin(Instance *inst,
 		LibertyPort *port,
 		Net *net)
@@ -4043,6 +4044,7 @@ Sta::connectPin(Instance *inst,
   NetworkEdit *network = networkCmdEdit();
   Pin *pin = network->connect(inst, port, net);
   connectPinAfter(pin);
+  return pin;
 }
 
 void
