@@ -609,6 +609,10 @@ public:
                           bool violators,
                           const Corner *corner,
                           const MinMax *min_max);
+  PinSeq *checkSlewLimitsSafe(Net *net,
+                              bool violators,
+                              const Corner *corner,
+                              const MinMax *min_max);
   void reportSlewLimitShortHeader();
   void reportSlewLimitShort(Pin *pin,
 			    const Corner *corner,
@@ -635,6 +639,9 @@ public:
   PinSeq *checkFanoutLimits(Net *net,
                             bool violators,
                             const MinMax *min_max);
+  PinSeq *checkFanoutLimitsSafe(Net *net,
+                                bool violators,
+                                const MinMax *min_max);
   void reportFanoutLimitShortHeader();
   void reportFanoutLimitShort(Pin *pin,
 			      const MinMax *min_max);
@@ -656,6 +663,10 @@ public:
                                  bool violators,
                                  const Corner *corner,
                                  const MinMax *min_max);
+  PinSeq *checkCapacitanceLimitsSafe(Net *net,
+                                     bool violators,
+                                     const Corner *corner,
+                                     const MinMax *min_max);
   void reportCapacitanceLimitShortHeader();
   void reportCapacitanceLimitShort(Pin *pin,
 				   const Corner *corner,

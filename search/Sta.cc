@@ -5124,6 +5124,27 @@ Sta::checkSlewLimits(Net *net,
   return check_slew_limits_->checkSlewLimits(net, violators, corner, min_max);
 }
 
+#define PinSeqInit(NAME) \
+static PinSeq* seq_##NAME = nullptr; \
+static void deleteTmpPinSeq_##NAME() { delete seq_##NAME; }
+
+#define PinSeqDeclare(seq, NAME) \
+PinSeq* seq = seq_##NAME;   \
+if (!seq) atexit(deleteTmpPinSeq_##NAME);
+
+PinSeqInit(check_slew_limits)
+PinSeq *
+Sta::checkSlewLimitsSafe(Net *net,
+                         bool violators,
+                         const Corner *corner,
+                         const MinMax *min_max)
+{
+  PinSeqDeclare(seq, check_slew_limits);
+  delete seq;
+  seq = checkSlewLimits(net, violators, corner, min_max);
+  return seq;
+}
+
 void
 Sta::reportSlewLimitShortHeader()
 {
@@ -5196,6 +5217,18 @@ Sta::checkFanoutLimits(Net *net,
   return check_fanout_limits_->checkFanoutLimits(net, violators, min_max);
 }
 
+PinSeqInit(check_fanout_limits)
+PinSeq *
+Sta::checkFanoutLimitsSafe(Net *net,
+                           bool violators,
+                           const MinMax *min_max)
+{
+  PinSeqDeclare(seq, check_fanout_limits);
+  delete seq;
+  seq = checkFanoutLimits(net, violators, min_max);
+  return seq;
+}
+
 void
 Sta::reportFanoutLimitShortHeader()
 {
@@ -5256,6 +5289,19 @@ Sta::checkCapacitanceLimits(Net *net,
   checkCapacitanceLimitPreamble();
   return check_capacitance_limits_->checkCapacitanceLimits(net, violators,
                                                            corner, min_max);
+}
+
+PinSeqInit(check_capacitance_limits)
+PinSeq *
+Sta::checkCapacitanceLimitsSafe(Net *net,
+                                bool violators,
+                                const Corner *corner,
+                                const MinMax *min_max)
+{
+  PinSeqDeclare(seq, check_capacitance_limits);
+  delete seq;
+  seq = checkCapacitanceLimits(net, violators, corner, min_max);
+  return seq;
 }
 
 void
