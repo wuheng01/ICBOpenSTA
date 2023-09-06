@@ -23,6 +23,11 @@
 #include "Vector.hh"
 
 namespace sta {
+namespace Thread {
+
+extern thread_local size_t index;
+
+}
 
 using std::string;
 
