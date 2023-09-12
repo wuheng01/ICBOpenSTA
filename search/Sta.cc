@@ -2803,6 +2803,14 @@ Sta::vertexWorstSlackPath(Vertex *vertex,
 Arrival
 Sta::vertexArrival(Vertex *vertex,
 		   const RiseFall *rf,
+		   const MinMax *min_max)
+{
+  return vertexArrival(vertex, rf, clk_edge_wildcard, nullptr, min_max);
+}
+
+Arrival
+Sta::vertexArrival(Vertex *vertex,
+		   const RiseFall *rf,
 		   const PathAnalysisPt *path_ap)
 {
   return vertexArrival(vertex, rf, clk_edge_wildcard, path_ap);
@@ -2810,15 +2818,24 @@ Sta::vertexArrival(Vertex *vertex,
 
 Arrival
 Sta::vertexArrival(Vertex *vertex,
+			const RiseFall *rf,
+			const ClockEdge *clk_edge,
+			const PathAnalysisPt *path_ap) {
+  return vertexArrival(vertex, rf, clk_edge, path_ap, nullptr);
+}
+
+Arrival
+Sta::vertexArrival(Vertex *vertex,
 		   const RiseFall *rf,
 		   const ClockEdge *clk_edge,
-		   const PathAnalysisPt *path_ap)
+		   const PathAnalysisPt *path_ap,
+       const MinMax *min_max)
 {
   searchPreamble();
   search_->findArrivals(vertex->level());
-  const MinMax *min_max = path_ap->pathMinMax();
-  Arrival arrival = min_max->initValue();
-  VertexPathIterator path_iter(vertex, rf, path_ap, this);
+  const MinMax *arr_min_max = min_max ? min_max : path_ap->pathMinMax();
+  Arrival arrival = arr_min_max->initValue();
+  VertexPathIterator path_iter(vertex, rf, path_ap, min_max, this);
   while (path_iter.hasNext()) {
     Path *path = path_iter.next();
     const Arrival &path_arrival = path->arrival(this);
@@ -2826,7 +2843,7 @@ Sta::vertexArrival(Vertex *vertex,
     if ((clk_edge == clk_edge_wildcard
 	 || clk_info->clkEdge() == clk_edge)
 	&& !clk_info->isGenClkSrcPath()
-	&& delayGreater(path->arrival(this), arrival, min_max, this))
+	&& delayGreater(path->arrival(this), arrival, arr_min_max, this))
       arrival = path_arrival;
   }
   return arrival;
