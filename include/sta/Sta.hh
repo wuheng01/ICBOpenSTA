@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+#include <memory>
 
 #include "DisallowCopyAssign.hh"
 #include "StringSeq.hh"
@@ -1268,6 +1269,8 @@ public:
   void makeEquivCells(LibertyLibrarySeq *equiv_libs,
 		      LibertyLibrarySeq *map_libs);
   LibertyCellSeq *equivCells(LibertyCell *cell);
+
+  static void registerDeleteVertexCB(std::shared_ptr<std::function<void(Vertex*)>>& f);
 
 protected:
   // Default constructors that are called by makeComponents in the Sta

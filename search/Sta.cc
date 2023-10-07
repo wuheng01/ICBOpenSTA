@@ -4449,6 +4449,30 @@ Sta::deleteInstancePinsBefore(Instance *inst)
   delete pin_iter;
 }
 
+typedef std::vector<std::weak_ptr<std::function<void(Vertex*)>>> StaticDeleteVertexBeforeFunctions;
+static StaticDeleteVertexBeforeFunctions deleteVertexBeforeFunctions;
+
+static void deleteVertexBeforeTakeAction(Vertex* v) {
+  bool has_expired = false;
+  for (auto& p: deleteVertexBeforeFunctions) {
+    if (!p.expired()) {
+      (*(p.lock()))(v);
+    } else has_expired = true;
+  }
+  if (has_expired) {
+    StaticDeleteVertexBeforeFunctions tmp;
+    for (auto &p : deleteVertexBeforeFunctions) {
+      if (!p.expired()) tmp.push_back(p);
+    }
+    tmp.swap(deleteVertexBeforeFunctions);
+  }
+}
+
+void 
+Sta::registerDeleteVertexCB(std::shared_ptr<std::function<void (Vertex *)>>& f) {
+  deleteVertexBeforeFunctions.push_back(f);
+}
+
 void
 Sta::deletePinBefore(Pin *pin)
 {
@@ -4459,6 +4483,7 @@ Sta::deletePinBefore(Pin *pin)
         levelize_->deleteVertexBefore(vertex);
         graph_delay_calc_->deleteVertexBefore(vertex);
         search_->deleteVertexBefore(vertex);
+        deleteVertexBeforeTakeAction(vertex);
 
         VertexInEdgeIterator in_edge_iter(vertex, graph_);
         while (in_edge_iter.hasNext()) {
@@ -4479,6 +4504,7 @@ Sta::deletePinBefore(Pin *pin)
         levelize_->deleteVertexBefore(vertex);
         graph_delay_calc_->deleteVertexBefore(vertex);
         search_->deleteVertexBefore(vertex);
+        deleteVertexBeforeTakeAction(vertex);
 
         VertexOutEdgeIterator edge_iter(vertex, graph_);
         while (edge_iter.hasNext()) {
@@ -4503,6 +4529,8 @@ Sta::deletePinBefore(Pin *pin)
         levelize_->deleteVertexBefore(vertex);
         graph_delay_calc_->deleteVertexBefore(vertex);
         search_->deleteVertexBefore(vertex);
+        deleteVertexBeforeTakeAction(vertex);
+
         graph_->deleteVertex(vertex);
       }
     }
