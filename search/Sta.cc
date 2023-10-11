@@ -3257,6 +3257,16 @@ Sta::setArcDelayCalc(const char *delay_calc_name)
 }
 
 void
+Sta::setArcDelayCalc(ArcDelayCalc* calc) {
+  delete arc_delay_calc_;
+  arc_delay_calc_ = calc->copy();
+  // Update pointers to arc_delay_calc.
+  updateComponentsState();
+  graph_delay_calc_->delaysInvalid();
+  search_->arrivalsInvalid();
+}
+
+void
 Sta::findDelays(Vertex *to_vertex)
 {
   delayCalcPreamble();
