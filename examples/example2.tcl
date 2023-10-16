@@ -1,7 +1,18 @@
-# delay calc example
-read_liberty example1_slow.lib
-read_verilog example1.v
+#Example of running physical synthesis on small example
+#(example2.v)
+read_liberty nangate45_fast.lib      
+read_verilog example2.v
 link_design top
-create_clock -name clk -period 10 {clk1 clk2 clk3}
-set_input_delay -clock clk 0 {in1 in2}
+#Set up some constraints
+create_clock -name clk1 clk1 -period 1.00
+report_clock_properties clk1
+#report them
 report_checks
+#Entry to physical world
+write_verilog before_remapped.v
+phys_remap nangate45_fast.lib
+#write out the resynthesised verilog
+write_verilog after_remapped.v
+
+
+

@@ -30,7 +30,7 @@
 #include "VertexVisitor.hh"
 #include "SearchClass.hh"
 #include "PowerClass.hh"
-
+#include <functional>
 struct Tcl_Interp;
 
 namespace sta {

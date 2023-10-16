@@ -30,11 +30,16 @@ project(STA VERSION 2.3.1
 
 option(USE_CUDD "Use CUDD BDD package")
 option(CUDD_DIR "CUDD BDD package directory")
+option(ABC_DIR  "ABC library directory" )
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
 message(STATUS "STA version: ${PROJECT_VERSION}")
+message(STATUS "ABC directory: ${ABC_DIR}")
+message(STATUS "ABC include directories: ${ABC_DIR}/src/base")
+message(STATUS "ABC include directories: ${ABC_DIR}/src/base/abc")
+message(STATUS "ABC include directories: ${ABC_DIR}/src/")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(GetGitRevisionDescription)
@@ -100,7 +105,27 @@ set(STA_SOURCE
   liberty/Transition.cc
   liberty/Units.cc
   liberty/Wireload.cc
-  
+
+  #The restructuring directory
+  #Cuts and cut generation
+  restr/Cut.cc
+  restr/CutGen.cc
+  restr/ClusterCutGen.cc  
+  restr/FuncExpr2Kit.cc
+  #Liberty interface
+  restr/LibRead.cc
+  #cut to abc
+  restr/Cut2Ntk.cc
+  #abc to cut
+  restr/Ntk2Cut.cc
+  #remap: timing api and remapping api.
+  restr/PhysTiming.cc
+  restr/PhysRemap.cc
+  #Abc lite
+  abclite/kit/Kit.cc  
+  abclite/extra/ExtraUtil.cc
+  abclite/npnencode/Npnencode.cc
+
   network/ConcreteLibrary.cc
   network/ConcreteNetwork.cc
   network/HpinDrvrLoad.cc
@@ -349,6 +374,15 @@ target_include_directories(sta_swig
   PUBLIC
   include/sta
 
+  abclite/extra
+  abclite/global
+  abclite/kit
+  restr
+
+  ${ABC_DIR}/src/base}
+  ${ABC_DIR}/src/base/abc}  
+  ${ABC_DIR}/src
+
   PRIVATE
   ${STA_HOME}
   ${TCL_INCLUDE_PATH}
@@ -386,6 +420,13 @@ find_package(TCL)
 include(FindZLIB)
 
 find_package(Threads)
+
+find_library(ABC_LIB
+  NAME abc
+  PATHS ${ABC_DIR}
+)
+message(STATUS "Using abc library : ${ABC_LIB}")
+
 
 ################################################################
 #
@@ -459,6 +500,17 @@ target_include_directories(OpenSTA
   include
   ${TCL_INCLUDE_PATH}
 
+  abclite/kit
+  abclite/extra
+  abclite/global
+  abclite/npnencode
+  restr
+  
+  ${ABC_DIR}/src/base}
+  ${ABC_DIR}/src/base/abc}  
+  ${ABC_DIR}/src
+
+
   PRIVATE
   include/sta
   ${STA_HOME}
@@ -495,6 +547,11 @@ target_link_libraries(sta
   ${CMAKE_THREAD_LIBS_INIT}
   )
 
+if (ABC_LIB)
+  message(STATUS "ABC library: ${ABC_LIB}")
+  target_link_libraries(sta ${ABC_LIB}  ${CMAKE_DL_LIBS} )
+endif()
+  
 if (ZLIB_LIBRARIES)
   target_link_libraries(sta ${ZLIB_LIBRARIES})
 endif()
