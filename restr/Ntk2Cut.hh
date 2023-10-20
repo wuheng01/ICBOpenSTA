@@ -12,11 +12,11 @@ namespace sta {
   
 class Ntk2Cut {
 public:
-  Ntk2Cut(Abc_Ntk_t*, Cut*, ConcreteNetwork*);
+  Ntk2Cut(abc::Abc_Ntk_t*, Cut*, ConcreteNetwork*);
   void BuildNwkElements();
 
 private:
-  Abc_Ntk_t* mapped_netlist_;
+  abc::Abc_Ntk_t* mapped_netlist_;
   Cut* cut_;
   ConcreteNetwork* target_nwk_;
 };

@@ -35,6 +35,7 @@ option(ABC_DIR  "ABC library directory" )
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
+set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
 message(STATUS "STA version: ${PROJECT_VERSION}")
 message(STATUS "ABC directory: ${ABC_DIR}")
 message(STATUS "ABC include directories: ${ABC_DIR}/src/base")
@@ -421,9 +422,11 @@ include(FindZLIB)
 
 find_package(Threads)
 
+set (ABC_BUILD_DIR "${PROJECT_BINARY_DIR}/../../third-party/abc/")
+message(STATUS "ABC_BUILD_DIR ${ABC_BUILD_DIR}")
 find_library(ABC_LIB
   NAME abc
-  PATHS ${ABC_DIR}
+  PATHS ${ABC_BUILD_DIR}
 )
 message(STATUS "Using abc library : ${ABC_LIB}")
 
@@ -519,9 +522,9 @@ target_include_directories(OpenSTA
 
 target_compile_options(OpenSTA
   PRIVATE
-  $<$<CXX_COMPILER_ID:GNU>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security>
-  $<$<CXX_COMPILER_ID:AppleClang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments>
-  $<$<CXX_COMPILER_ID:Clang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments>
+  $<$<CXX_COMPILER_ID:GNU>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security> -DABC_NAMESPACE=abc
+  $<$<CXX_COMPILER_ID:AppleClang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments> -DABC_NAMESPACE=abc
+  $<$<CXX_COMPILER_ID:Clang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments> -DABC_NAMESPACE=abc
   )
 
 # Disable compiler specific extensions like gnu++11.
@@ -553,6 +556,7 @@ if (ABC_LIB)
 endif()
   
 if (ZLIB_LIBRARIES)
+  message(STATUS "zlib library: ${ZLIB_LIBRARIES}")
   target_link_libraries(sta ${ZLIB_LIBRARIES})
 endif()
 

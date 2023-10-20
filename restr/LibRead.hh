@@ -7,6 +7,10 @@
 #include <map/amap/amapInt.h>
 #include <base/io/ioAbc.h>
 
+namespace abc {
+  struct Amap_Lib_t_;
+}
+
 namespace sta {
 
   class PhysRemap;
@@ -18,7 +22,7 @@ namespace sta {
   private:
     char* lib_file_name_;
     bool verbose_;
-    Amap_Lib_t_ *lib_;
+    abc::Amap_Lib_t_ *lib_;
 
   friend class PhysRemap;
   };

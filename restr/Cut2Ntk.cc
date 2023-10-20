@@ -21,6 +21,8 @@ Build an abc netlist for a cut.
 
 //#define CUT2NWK_DEBUG 1
 
+using namespace abc;
+
 namespace sta {
 
   bool Cut2Ntk::SopNwkCheck(Abc_Ntk_t* abc_nwk){

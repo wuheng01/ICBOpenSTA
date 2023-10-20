@@ -22,11 +22,18 @@ constraints. Finally it rebuilds the area of logic modified (the cut) in the sta
 #include <map/amap/amapInt.h>
 #include <VerilogWriter.hh>
 #include <base/main/main.h>
-extern "C" void Io_WriteVerilog(Abc_Ntk_t*, char*, int);
-extern "C" void Amap_ManSetDefaultParams(Amap_Par_t*);
-extern "C" Abc_Ntk_t* Abc_NtkDarAmap(Abc_Ntk_t*, Amap_Par_t*);
-extern "C" Abc_Frame_t * Abc_FrameGetGlobalFrame();
+extern "C" void Io_WriteVerilog(abc::Abc_Ntk_t*, char*, int);
+
+namespace abc {
 typedef struct Abc_Frame_t_ Abc_Frame_t;
+typedef struct Abc_Ntk_t_   Abc_Ntk_t;
+Abc_Frame_t * Abc_FrameGetGlobalFrame();
+void Amap_ManSetDefaultParams(Amap_Par_t*);
+Abc_Ntk_t* Abc_NtkDarAmap(Abc_Ntk_t*, Amap_Par_t*);
+}
+
+using namespace abc;
+
 namespace sta {
   
   void

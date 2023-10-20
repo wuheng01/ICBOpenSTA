@@ -6,8 +6,7 @@ Physical logic restructuring: Liberty reader
 #include <ExtraUtil.hh>
 #include <base/main/main.h>
 
-extern "C" void Abc_Start();
-extern "C" int Cmd_CommandExecute(Abc_Frame_t*, const char*);
+using namespace abc;
 
 namespace sta {
 
@@ -21,7 +20,7 @@ namespace sta {
     Abc_Frame_t* pAbc = Abc_FrameGetGlobalFrame();
     Cmd_CommandExecute(pAbc,cmd_line.c_str());
     //Check we have a library
-    if ( Abc_FrameReadLibGen() == NULL )
+    if (Abc_FrameReadLibGen() == NULL )
       printf("Error. Library is not available\n");
     else
       printf("Successfully read in library\n");

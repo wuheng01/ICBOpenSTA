@@ -23,6 +23,7 @@
 
 namespace sta {
 
+  using namespace abc;
   
   Ntk2Cut::Ntk2Cut(Abc_Ntk_t* abc_nwk,
 		   Cut* cut,

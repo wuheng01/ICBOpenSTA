@@ -10,6 +10,12 @@ Remap a cut
 #include <base/abc/abc.h>
 #include <LibRead.hh>
 
+namespace abc {
+typedef struct Abc_Ntk_t_ Abc_Ntk_t;
+typedef struct Abc_Obj_t_ Abc_Obj_t;
+typedef struct Amap_Lib_t_ Amap_Lib_t;
+}
+
 namespace sta {
 
   class Network;
@@ -40,8 +46,8 @@ namespace sta {
       verbose_=true;
     }
     void Remap();
-    void AnnotateTimingRequirementsOntoABCNwk(Abc_Ntk_t* sop_logic_nwk);
-    void BuildCutRealization(Abc_Ntk_t*);
+    void AnnotateTimingRequirementsOntoABCNwk(abc::Abc_Ntk_t* sop_logic_nwk);
+    void BuildCutRealization(abc::Abc_Ntk_t*);
     
   private:
     Network* nwk_;
@@ -50,7 +56,7 @@ namespace sta {
     char* lib_name_;
     std::string cut_name_;
 
-    Amap_Lib_t* liberty_library_;
+    abc::Amap_Lib_t* liberty_library_;
 
     bool global_optimize_;
     bool verbose_;
