@@ -33,6 +33,8 @@ option(CUDD_DIR "CUDD BDD package directory")
 option(ABC_DIR  "ABC library directory" )
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
+set(ABC_EXTRA_FLAGS "-DLIN64")
+set(CMAKE_CXX_FLAGS ${ABC_EXTRA_FLAGS} )
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
 set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
