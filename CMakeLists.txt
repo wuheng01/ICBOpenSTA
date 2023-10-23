@@ -37,7 +37,7 @@ set(ABC_EXTRA_FLAGS "-DLIN64")
 set(CMAKE_CXX_FLAGS ${ABC_EXTRA_FLAGS} )
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
-set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
+set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/icb-abc/")
 message(STATUS "STA version: ${PROJECT_VERSION}")
 message(STATUS "ABC directory: ${ABC_DIR}")
 message(STATUS "ABC include directories: ${ABC_DIR}/src/base")
