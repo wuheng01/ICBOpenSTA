@@ -125,7 +125,7 @@ Corners::copy(Corners *corners)
     Corner *corner = corners_[i];
     auto &orig_aps = orig->parasitic_analysis_pts_;
     auto &corner_aps = corner->parasitic_analysis_pts_;
-    corner_aps.resize(orig_aps.size());
+    corner_aps.reserve(orig_aps.size());
     for (ParasiticAnalysisPt *orig_ap : orig_aps) {
       int ap_index = orig_ap->index();
       corner_aps.push_back(parasitic_analysis_pts_[ap_index]);

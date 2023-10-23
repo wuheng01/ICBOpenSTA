@@ -3267,6 +3267,15 @@ Sta::setArcDelayCalc(ArcDelayCalc* calc) {
 }
 
 void
+Sta::setCorners(const Sta* sta) {
+  auto corners = sta->corners();
+  parasitics_->deleteParasitics();
+  corners_->copy(corners);
+  cmd_corner_ = sta->cmd_corner_;
+  setParasiticAnalysisPts(sta->parasitics_per_corner_, sta->parasitics_per_min_max_);
+}
+
+void
 Sta::findDelays(Vertex *to_vertex)
 {
   delayCalcPreamble();

@@ -1232,6 +1232,7 @@ public:
   // Define the delay calculator implementation.
   void setArcDelayCalc(const char *delay_calc_name);
   void setArcDelayCalc(ArcDelayCalc* calc);
+  void setCorners(const Sta* sta);
 
   void setDebugLevel(const char *what,
 		     int level);
