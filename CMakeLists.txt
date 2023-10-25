@@ -37,7 +37,7 @@ set(ABC_EXTRA_FLAGS "-DLIN64")
 set(CMAKE_CXX_FLAGS ${ABC_EXTRA_FLAGS} )
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
-set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/icb-abc/")
+set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
 message(STATUS "STA version: ${PROJECT_VERSION}")
 message(STATUS "ABC directory: ${ABC_DIR}")
 message(STATUS "ABC include directories: ${ABC_DIR}/src/base")
@@ -424,14 +424,6 @@ include(FindZLIB)
 
 find_package(Threads)
 
-set (ABC_BUILD_DIR "${PROJECT_BINARY_DIR}/../../third-party/abc/")
-message(STATUS "ABC_BUILD_DIR ${ABC_BUILD_DIR}")
-find_library(ABC_LIB
-  NAME abc
-  PATHS ${ABC_BUILD_DIR}
-)
-message(STATUS "Using abc library : ${ABC_LIB}")
-
 
 ################################################################
 #
@@ -511,8 +503,8 @@ target_include_directories(OpenSTA
   abclite/npnencode
   restr
   
-  ${ABC_DIR}/src/base}
-  ${ABC_DIR}/src/base/abc}  
+  ${ABC_DIR}/src/base
+  ${ABC_DIR}/src/base/abc
   ${ABC_DIR}/src
 
 
@@ -548,15 +540,11 @@ add_executable(sta app/Main.cc)
 target_link_libraries(sta
   sta_swig
   OpenSTA
+  libabc
   ${TCL_LIBRARY}
   ${CMAKE_THREAD_LIBS_INIT}
   )
 
-if (ABC_LIB)
-  message(STATUS "ABC library: ${ABC_LIB}")
-  target_link_libraries(sta ${ABC_LIB}  ${CMAKE_DL_LIBS} )
-endif()
-  
 if (ZLIB_LIBRARIES)
   message(STATUS "zlib library: ${ZLIB_LIBRARIES}")
   target_link_libraries(sta ${ZLIB_LIBRARIES})
