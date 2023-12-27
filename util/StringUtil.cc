@@ -156,9 +156,15 @@ stringPrintTmp(const char *fmt,
 }
 
 ////////////////////////////////////////////////////////////////
-enum { static_size_count = 1024 };
+// enum { static_size_count = 1024 };
 
 struct TmpStringCache {
+  TmpStringCache() {
+    init();
+  }
+  ~TmpStringCache() {
+    clear();
+  }
   void init(size_t initial_length = 100) {
     tmp_strings_ = new char*[tmp_string_count_];
     tmp_string_lengths_ = new size_t[tmp_string_count_];
@@ -209,20 +215,18 @@ struct TmpStringCache {
   int tmp_string_next_;
   std::mutex string_lock_;
 };
-static TmpStringCache cache[static_size_count];
+static thread_local TmpStringCache cache;
 
 void
 initTmpStrings()
 {
-  for(size_t i = 0; i < static_size_count; ++i) 
-    cache[i].init();
+//   cache.init();
 }
 
 void
 deleteTmpStrings()
 {
-  for(size_t i = 0; i < static_size_count; ++i) 
-    cache[i].clear();
+//   cache.clear();
 }
 
 static void
@@ -230,13 +234,13 @@ getTmpString(// Return values.
 	     char *&str,
 	     size_t &length)
 {
-  cache[Thread::index].getTmpString(str, length);
+  cache.getTmpString(str, length);
 }
 
 char *
 makeTmpString(size_t length)
 {
-  return cache[Thread::index].makeTmpString(length);
+  return cache.makeTmpString(length);
 }
 
 ////////////////////////////////////////////////////////////////
