@@ -61,7 +61,8 @@ public:
 	     bool quiet,
 	     Report *report,
 	     Network *network,
-	     Parasitics *parasitics);
+	     Parasitics *parasitics,
+       bool disable_reduce_parsitic_network_circle);
   virtual ~SpefReader();
   char divider() const { return divider_; }
   void setDivider(char divider);
@@ -173,6 +174,8 @@ private:
   SpefNameMap name_map_;
   StringSeq *design_flow_;
   Parasitic *parasitic_;
+
+  bool disable_reduce_parsitic_network_circle_;
 };
 
 class SpefTriple

@@ -1116,7 +1116,8 @@ public:
 		float coupling_cap_factor,
 		ReducedParasiticType reduce_to,
 		bool delete_after_reduce,
-		bool quiet);
+		bool quiet,
+    bool disable_reduce_parsitic_network_circle);
   // Parasitics.
   void findPiElmore(Pin *drvr_pin,
 		    const RiseFall *rf,

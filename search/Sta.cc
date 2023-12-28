@@ -3837,7 +3837,8 @@ Sta::readSpef(const char *filename,
 	      float coupling_cap_factor,
 	      ReducedParasiticType reduce_to,
 	      bool delete_after_reduce,
-	      bool quiet)
+	      bool quiet,
+        bool disable_reduce_parsitic_network_circle)
 {
   setParasiticAnalysisPts(corner != nullptr,
                           min_max != MinMaxAll::all());
@@ -3854,7 +3855,8 @@ Sta::readSpef(const char *filename,
 			      keep_coupling_caps, coupling_cap_factor,
 			      reduce_to, delete_after_reduce,
 			      op_cond, corner, cnst_min_max, quiet,
-			      report_, network_, parasitics_);
+			      report_, network_, parasitics_,
+            disable_reduce_parsitic_network_circle);
   graph_delay_calc_->delaysInvalid();
   search_->arrivalsInvalid();
   return success;

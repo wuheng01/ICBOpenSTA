@@ -51,6 +51,7 @@ readSpefFile(const char *filename,
 	     bool quiet,
 	     Report *report,
 	     Network *network,
-	     Parasitics *parasitics);
+	     Parasitics *parasitics,
+		 bool disable_reduce_parsitic_network_circle);
 
 } // namespace

@@ -44,13 +44,15 @@ read_spef_cmd(const char *filename,
 	      float coupling_cap_factor,
 	      ReducedParasiticType reduce_to,
 	      bool delete_after_reduce,
-	      bool quiet)
+	      bool quiet,
+		  bool disable_reduce_parsitic_network_circle)
 {
   cmdLinkedNetwork();
   return Sta::sta()->readSpef(filename, instance, corner, min_max,
 			      increment, pin_cap_included,
 			      keep_coupling_caps, coupling_cap_factor,
-			      reduce_to, delete_after_reduce, quiet);
+			      reduce_to, delete_after_reduce, quiet,
+				  disable_reduce_parsitic_network_circle);
 }
 
 TmpFloatSeq *

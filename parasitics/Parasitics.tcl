@@ -29,6 +29,7 @@ define_cmd_args "read_spef" \
      [-delete_after_reduce]\
      [-quiet]\
      [-save]\
+     [-disable_reduce_parsitic_network_circle]\
      filename}
 
 proc_redirect read_spef {
@@ -36,7 +37,7 @@ proc_redirect read_spef {
     keys {-path -coupling_reduction_factor -reduce_to -corner} \
     flags {-min -max -increment -pin_cap_included \
 	     -keep_capacitive_coupling \
-	     -delete_after_reduce -quiet -save}
+	     -delete_after_reduce -quiet -save -disable_reduce_parsitic_network_circle}
   check_argc_eq1 "report_spef" $args
 
   set instance [top_instance]
@@ -68,10 +69,11 @@ proc_redirect read_spef {
   set delete_after_reduce [info exists flags(-delete_after_reduce)]
   set quiet [info exists flags(-quiet)]
   set save [info exists flags(-save)]
+  set disable_reduce_parsitic_network_circle [info exists flags(-disable_reduce_parsitic_network_circle)]
   set filename [file nativename [lindex $args 0]]
   return [read_spef_cmd $filename $instance $corner $min_max $increment \
 	    $pin_cap_included $keep_coupling_caps $coupling_reduction_factor \
-	    $reduce_to $delete_after_reduce $quiet]
+	    $reduce_to $delete_after_reduce $quiet $disable_reduce_parsitic_network_circle]
 }
 
 # set_pi_model [-min] [-max] drvr_pin c2 rpi c1
