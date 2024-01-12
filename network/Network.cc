@@ -1485,6 +1485,8 @@ Network::clearNetDrvrPinMap()
   net_drvr_pin_map_.deleteContentsClear();
 }
 
+static std::mutex net_drvr_pin_map_mutex;
+
 PinSet *
 Network::drivers(const Net *net)
 {
@@ -1493,6 +1495,7 @@ Network::drivers(const Net *net)
     drvrs = new PinSet;
     FindDrvrPins visitor(drvrs, this);
     visitConnectedPins(net, visitor);
+    std::lock_guard<std::mutex> lg(net_drvr_pin_map_mutex);
     net_drvr_pin_map_[net] = drvrs;
   }
   return drvrs;
