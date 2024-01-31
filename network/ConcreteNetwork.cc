@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #include "ConcreteNetwork.hh"
 
-#include "DisallowCopyAssign.hh"
 #include "PatternMatch.hh"
 #include "Report.hh"
 #include "Liberty.hh"
@@ -39,6 +38,9 @@ makeClonePins(Instance *proto,
 	      Instance *parent,
 	      ConcreteBindingTbl *parent_bindings,
 	      NetworkReader *network);
+
+
+////////////////////////////////////////////////////////////////
 
 NetworkReader *
 makeConcreteNetwork()
@@ -83,7 +85,6 @@ public:
   Net *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteInstanceNetIterator);
   void findNext();
 
   ConcreteInstanceNetMap::Iterator iter_;
@@ -135,10 +136,9 @@ public:
   Pin *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteInstancePinIterator);
   void findNext();
 
-  ConcretePin **pins_;
+  const ConcretePinSeq &pins_;
   int pin_count_;
   int pin_index_;
   ConcretePin *next_;
@@ -190,8 +190,6 @@ public:
   Pin *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteNetPinIterator);
-
   ConcretePin *next_;
 };
 
@@ -224,8 +222,6 @@ public:
   Term *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteNetTermIterator);
-
   ConcreteTerm *next_;
 };
 
@@ -250,9 +246,12 @@ ConcreteNetTermIterator::next()
 
 ////////////////////////////////////////////////////////////////
 
+ObjectId ConcreteNetwork::object_id_ = 0;
+
 ConcreteNetwork::ConcreteNetwork() :
   NetworkReader(),
   top_instance_(nullptr),
+  constant_nets_{NetSet(this), NetSet(this)},
   link_func_(nullptr)
 {
 }
@@ -309,8 +308,6 @@ public:
   virtual Library *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteLibraryIterator1);
-
   ConcreteLibraryIterator iter_;
 };
 
@@ -348,7 +345,6 @@ public:
   virtual LibertyLibrary *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteLibertyLibraryIterator);
   void findNext();
 
   ConcreteLibrarySeq::ConstIterator iter_;
@@ -453,6 +449,14 @@ ConcreteNetwork::name(const Library *library) const
   return clib->name();
 }
 
+ObjectId
+ConcreteNetwork::id(const Library *library) const
+{
+  const ConcreteLibrary *clib =
+    reinterpret_cast<const ConcreteLibrary*>(library);
+  return clib->id();
+}
+
 LibertyLibrary *
 ConcreteNetwork::findLiberty(const char *name)
 {
@@ -470,13 +474,6 @@ ConcreteNetwork::findLiberty(const char *name)
     }
   }
   return nullptr;
-}
-
-LibertyLibrary *
-ConcreteNetwork::libertyLibrary(Library *library) const
-{
-  ConcreteLibrary *lib = reinterpret_cast<ConcreteLibrary*>(library);
-  return static_cast<LibertyLibrary*>(lib);
 }
 
 Cell *
@@ -511,14 +508,13 @@ ConcreteNetwork::findAnyCell(const char *name)
   return nullptr;
 }
 
-void
+CellSeq
 ConcreteNetwork::findCellsMatching(const Library *library,
-				   const PatternMatch *pattern,
-				   CellSeq *cells) const
+				   const PatternMatch *pattern) const
 {
   const ConcreteLibrary *clib =
     reinterpret_cast<const ConcreteLibrary*>(library);
-  clib->findCellsMatching(pattern, cells);
+  return clib->findCellsMatching(pattern);
 }
 
 void
@@ -536,6 +532,13 @@ ConcreteNetwork::name(const Cell *cell) const
 {
   const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
   return ccell->name();
+}
+
+ObjectId
+ConcreteNetwork::id(const Cell *cell) const
+{
+  const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
+  return ccell->id();
 }
 
 void
@@ -602,15 +605,6 @@ ConcreteNetwork::findPort(const Cell *cell,
   return reinterpret_cast<Port*>(ccell->findPort(name));
 }
 
-void
-ConcreteNetwork::findPortsMatching(const Cell *cell,
-				   const PatternMatch *pattern,
-				   PortSeq *ports) const
-{
-  const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
-  ccell->findPortsMatching(pattern, ports);
-}
-
 bool
 ConcreteNetwork::isLeaf(const Cell *cell) const
 {
@@ -645,7 +639,8 @@ ConcreteNetwork::groupBusPorts(Cell *cell,
   Library *lib = library(cell);
   ConcreteLibrary *clib = reinterpret_cast<ConcreteLibrary*>(lib);
   ConcreteCell *ccell = reinterpret_cast<ConcreteCell*>(cell);
-  ccell->groupBusPorts(clib->busBrktLeft(), clib->busBrktRight(), port_msb_first);
+  ccell->groupBusPorts(clib->busBrktLeft(), clib->busBrktRight(),
+                       port_msb_first);
 }
 
 Port *
@@ -667,6 +662,12 @@ ConcreteNetwork::setDirection(Port *port,
   cport->setDirection(dir);
 }
 
+ObjectId
+ConcreteNetwork::nextObjectId()
+{
+  return object_id_++;
+}
+
 ////////////////////////////////////////////////////////////////
 
 class ConcreteCellPortIterator1 : public CellPortIterator
@@ -678,8 +679,6 @@ public:
   virtual Port *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteCellPortIterator1);
-
   ConcreteCellPortIterator *iter_;
 };
 
@@ -717,8 +716,6 @@ public:
   virtual Port *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteCellPortBitIterator1);
-
   ConcreteCellPortBitIterator *iter_;
 };
 
@@ -759,6 +756,13 @@ ConcreteNetwork::name(const Port *port) const
 {
   const ConcretePort *cport = reinterpret_cast<const ConcretePort*>(port);
   return cport->name();
+}
+
+ObjectId
+ConcreteNetwork::id(const Port *port) const
+{
+  const ConcretePort *cport = reinterpret_cast<const ConcretePort*>(port);
+  return cport->id();
 }
 
 Cell *
@@ -849,23 +853,24 @@ ConcreteNetwork::hasMembers(const Port *port) const
 
 ////////////////////////////////////////////////////////////////
 
+// This has to skip over missing bus bits in the members.
 class ConcretePortMemberIterator1 : public PortMemberIterator
 {
 public:
   explicit ConcretePortMemberIterator1(const ConcretePort *port);
   ~ConcretePortMemberIterator1();
-  virtual bool hasNext() { return iter_->hasNext(); }
+  virtual bool hasNext();
   virtual Port *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcretePortMemberIterator1);
-
   ConcretePortMemberIterator *iter_;
+  ConcretePort *next_;
 };
 
 ConcretePortMemberIterator1::ConcretePortMemberIterator1(const ConcretePort *
 							 port) :
-  iter_(port->memberIterator())
+  iter_(port->memberIterator()),
+  next_(nullptr)
 {
 }
 
@@ -874,10 +879,21 @@ ConcretePortMemberIterator1::~ConcretePortMemberIterator1()
   delete iter_;
 }
 
+bool
+ConcretePortMemberIterator1::hasNext()
+{
+  while (next_ == nullptr
+         && iter_->hasNext())
+    next_ = iter_->next();
+  return next_ != nullptr;
+}
+
 Port *
 ConcretePortMemberIterator1::next()
 {
-  return reinterpret_cast<Port*>(iter_->next());
+  ConcretePort *next = next_;
+  next_ = nullptr;
+  return reinterpret_cast<Port*>(next);
 }
 
 PortMemberIterator *
@@ -895,6 +911,14 @@ ConcreteNetwork::name(const Instance *instance) const
   const ConcreteInstance *inst =
     reinterpret_cast<const ConcreteInstance*>(instance);
   return inst->name();
+}
+
+ObjectId
+ConcreteNetwork::id(const Instance *instance) const
+{
+  const ConcreteInstance *inst =
+    reinterpret_cast<const ConcreteInstance*>(instance);
+  return inst->id();
 }
 
 Cell *
@@ -961,11 +985,11 @@ ConcreteNetwork::findNet(const Instance *instance,
 void
 ConcreteNetwork::findInstNetsMatching(const Instance *instance,
 				      const PatternMatch *pattern,
-				      NetSeq *nets) const
+				      NetSeq &matches) const
 {
   const ConcreteInstance *inst =
     reinterpret_cast<const ConcreteInstance*>(instance);
-  inst->findNetsMatching(pattern, nets);
+  return inst->findNetsMatching(pattern, matches);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -997,6 +1021,13 @@ ConcreteNetwork::netIterator(const Instance *instance) const
 }
 
 ////////////////////////////////////////////////////////////////
+
+ObjectId
+ConcreteNetwork::id(const Pin *pin) const
+{
+  const ConcretePin *cpin = reinterpret_cast<const ConcretePin*>(pin);
+  return cpin->id();
+}
 
 Instance *
 ConcreteNetwork::instance(const Pin *pin) const
@@ -1051,6 +1082,13 @@ ConcreteNetwork::setVertexId(Pin *pin,
 
 ////////////////////////////////////////////////////////////////
 
+ObjectId
+ConcreteNetwork::id(const Term *term) const
+{
+  const ConcreteTerm *cterm = reinterpret_cast<const ConcreteTerm*>(term);
+  return cterm->id();
+}
+
 Net *
 ConcreteNetwork::net(const Term *term) const
 {
@@ -1072,6 +1110,13 @@ ConcreteNetwork::name(const Net *net) const
 {
   const ConcreteNet *cnet = reinterpret_cast<const ConcreteNet*>(net);
   return cnet->name();
+}
+
+ObjectId
+ConcreteNetwork::id(const Net *net) const
+{
+  const ConcreteNet *cnet = reinterpret_cast<const ConcreteNet*>(net);
+  return cnet->id();
 }
 
 Instance *
@@ -1156,7 +1201,7 @@ ConcreteNetwork::makeConcreteInstance(ConcreteCell *cell,
 {
   ConcreteInstance *cparent =
     reinterpret_cast<ConcreteInstance*>(parent);
-  ConcreteInstance *inst = new ConcreteInstance(cell, name, cparent);
+  ConcreteInstance *inst = new ConcreteInstance(name, cell, cparent);
   if (parent)
     cparent->addChild(inst);
   return reinterpret_cast<Instance*>(inst);
@@ -1180,8 +1225,8 @@ ConcreteNetwork::replaceCell(Instance *inst,
   ConcreteCell *ccell = reinterpret_cast<ConcreteCell*>(cell);
   int port_count = ccell->portBitCount();
   ConcreteInstance *cinst = reinterpret_cast<ConcreteInstance*>(inst);
-  ConcretePin **pins = cinst->pins_;
-  ConcretePin **rpins = new ConcretePin*[port_count];
+  ConcretePinSeq &pins = cinst->pins_;
+  ConcretePinSeq rpins(port_count);
   for (int i = 0; i < port_count; i++)
     rpins[i] = nullptr;
   for (int i = 0; i < port_count; i++) {
@@ -1192,10 +1237,10 @@ ConcreteNetwork::replaceCell(Instance *inst,
       if (cport) {
         rpins[cport->pinIndex()] = cpin;
         cpin->port_ = cport;
+        cpin->id_ = ConcreteNetwork::nextObjectId();
       }
     }
   }
-  delete [] pins;
   cinst->pins_ = rpins;
   cinst->setCell(ccell);
 }
@@ -1301,7 +1346,8 @@ ConcreteNetwork::connect(Instance *inst,
   if (inst == top_instance_) {
     // makeTerm
     ConcreteTerm *cterm = new ConcreteTerm(cpin, cnet);
-    cnet->addTerm(cterm);
+    if (cnet)
+      cnet->addTerm(cterm);
     cpin->term_ = cterm;
     cpin->net_ = nullptr;
   }
@@ -1459,7 +1505,7 @@ ConcreteNetwork::constantPinIterator()
 void
 ConcreteNetwork::visitConnectedPins(const Net *net,
 				    PinVisitor &visitor,
-				    ConstNetSet &visited_nets) const
+				    NetSet &visited_nets) const
 {
   if (!visited_nets.hasKey(net)) {
     visited_nets.insert(net);
@@ -1493,11 +1539,12 @@ ConcreteNetwork::visitConnectedPins(const Net *net,
 
 ////////////////////////////////////////////////////////////////
 
-ConcreteInstance::ConcreteInstance(ConcreteCell *cell,
-				   const char *name,
-				   ConcreteInstance *parent) :
-  cell_(cell),
+ConcreteInstance::ConcreteInstance(const char *name,
+				   ConcreteCell *cell,
+                                   ConcreteInstance *parent) :
   name_(stringCopy(name)),
+  id_(ConcreteNetwork::nextObjectId()),
+  cell_(cell),
   parent_(parent),
   children_(nullptr),
   nets_(nullptr)
@@ -1508,20 +1555,13 @@ ConcreteInstance::ConcreteInstance(ConcreteCell *cell,
 void
 ConcreteInstance::initPins()
 {
-  int pin_count = reinterpret_cast<ConcreteCell*>(cell_)->portBitCount();
-  if (pin_count) {
-    pins_ = new ConcretePin*[pin_count];
-    for (int i = 0; i < pin_count; i++)
-      pins_[i] = nullptr;
-  }
-  else
-    pins_ = nullptr;
+  ConcreteCell *ccell = reinterpret_cast<ConcreteCell*>(cell_);
+  pins_.resize(ccell->portBitCount());
 }
 
 ConcreteInstance::~ConcreteInstance()
 {
   stringDelete(name_);
-  delete [] pins_;
   delete children_;
   delete nets_;
 }
@@ -1552,7 +1592,11 @@ ConcretePin *
 ConcreteInstance::findPin(const Port *port) const
 {
   const ConcretePort *cport = reinterpret_cast<const ConcretePort*>(port);
-  return pins_[cport->pinIndex()];
+  size_t port_index = cport->pinIndex();
+  if (port_index < pins_.size())
+    return pins_[port_index];
+  else
+    return nullptr;
 }
 
 ConcreteNet *
@@ -1572,7 +1616,7 @@ ConcreteInstance::findNet(const char *net_name) const
 
 void
 ConcreteInstance::findNetsMatching(const PatternMatch *pattern,
-				   NetSeq *nets) const
+                                   NetSeq &matches) const
 {
   if (pattern->hasWildcards()) {
     ConcreteInstanceNetMap::Iterator net_iter(nets_);
@@ -1581,13 +1625,13 @@ ConcreteInstance::findNetsMatching(const PatternMatch *pattern,
       ConcreteNet *cnet;
       net_iter.next(net_name, cnet);
       if (pattern->match(net_name))
-	nets->push_back(reinterpret_cast<Net*>(cnet));
+	matches.push_back(reinterpret_cast<Net*>(cnet));
     }
   }
   else {
     ConcreteNet *cnet = findNet(pattern->pattern());
     if (cnet)
-      nets->push_back(reinterpret_cast<Net*>(cnet));
+      matches.push_back(reinterpret_cast<Net*>(cnet));
   }
 }
 
@@ -1622,7 +1666,10 @@ void
 ConcreteInstance::addPin(ConcretePin *pin)
 {
   ConcretePort *cport = reinterpret_cast<ConcretePort *>(pin->port());
-  pins_[cport->pinIndex()] = pin;
+  size_t pin_index = cport->pinIndex();
+  if (pin_index >= pins_.size())
+    pins_.resize(pin_index + 1);
+  pins_[pin_index] = pin;
 }
 
 void
@@ -1670,6 +1717,7 @@ ConcretePin::ConcretePin(ConcreteInstance *instance,
   port_(port),
   net_(net),
   term_(nullptr),
+  id_(ConcreteNetwork::nextObjectId()),
   net_next_(nullptr),
   net_prev_(nullptr),
   vertex_id_(vertex_id_null)
@@ -1703,6 +1751,7 @@ ConcreteTerm::ConcreteTerm(ConcretePin *pin,
 			   ConcreteNet *net) :
   pin_(pin),
   net_(net),
+  id_(ConcreteNetwork::nextObjectId()),
   net_next_(nullptr)
 {
 }
@@ -1712,6 +1761,7 @@ ConcreteTerm::ConcreteTerm(ConcretePin *pin,
 ConcreteNet::ConcreteNet(const char *name,
 			 ConcreteInstance *instance) :
   name_(stringCopy(name)),
+  id_(ConcreteNetwork::nextObjectId()),
   instance_(instance),
   pins_(nullptr),
   terms_(nullptr),
@@ -1814,8 +1864,6 @@ public:
 	    Net *clone_net);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ConcreteBindingTbl);
-
   BindingMap map_;
   NetworkEdit *network_;
 };
@@ -1867,6 +1915,8 @@ ConcreteNetwork::linkNetwork(const char *top_cell_name,
     clearConstantNets();
     deleteTopInstance();
     top_instance_ = link_func_(top_cell_name, make_black_boxes, report, this);
+    if (top_instance_)
+      checkNetworkLibertyCorners();
     return top_instance_ != nullptr;
   }
   else {

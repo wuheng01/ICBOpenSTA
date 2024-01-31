@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,7 +39,6 @@ bool
 readSpefFile(const char *filename,
 	     Instance *instance,
 	     ParasiticAnalysisPt *ap,
-	     bool increment,
 	     bool pin_cap_included,
 	     bool keep_coupling_caps,
 	     float coupling_cap_factor,

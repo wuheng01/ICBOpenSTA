@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 #pragma once
 
 #include <tcl.h>
-#include "DisallowCopyAssign.hh"
+
 #include "Report.hh"
 
 namespace sta {
@@ -53,7 +53,6 @@ protected:
   void flush();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ReportTcl);
   Tcl_ChannelType *makeEncapChannelType(Tcl_Channel channel,
 					char *channel_name,
 					Tcl_DriverOutputProc output_proc);

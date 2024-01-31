@@ -3,7 +3,7 @@
 %{
 
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,7 +27,6 @@ using sta::MinMaxAll;
 using sta::ReducedParasiticType;
 using sta::RiseFall;
 using sta::Pin;
-using sta::TmpFloatSeq;
 
 %}
 
@@ -38,7 +37,6 @@ read_spef_cmd(const char *filename,
 	      Instance *instance,
 	      const Corner *corner,
               const MinMaxAll *min_max,
-	      bool increment,
 	      bool pin_cap_included,
 	      bool keep_coupling_caps,
 	      float coupling_cap_factor,
@@ -49,13 +47,20 @@ read_spef_cmd(const char *filename,
 {
   cmdLinkedNetwork();
   return Sta::sta()->readSpef(filename, instance, corner, min_max,
-			      increment, pin_cap_included,
-			      keep_coupling_caps, coupling_cap_factor,
-			      reduce_to, delete_after_reduce, quiet,
-				  disable_reduce_parsitic_network_circle);
+			      pin_cap_included, keep_coupling_caps,
+                              coupling_cap_factor, reduce_to,
+                              delete_after_reduce, quiet, disable_reduce_parsitic_network_circle);
 }
 
-TmpFloatSeq *
+void
+report_parasitic_annotation_cmd(bool report_unannotated,
+                                const Corner *corner)
+{
+  cmdLinkedNetwork();
+  Sta::sta()->reportParasiticAnnotation(report_unannotated, corner);
+}
+
+FloatSeq
 find_pi_elmore(Pin *drvr_pin,
 	       RiseFall *rf,
 	       MinMax *min_max)
@@ -63,13 +68,13 @@ find_pi_elmore(Pin *drvr_pin,
   float c2, rpi, c1;
   bool exists;
   Sta::sta()->findPiElmore(drvr_pin, rf, min_max, c2, rpi, c1, exists);
-  TmpFloatSeq *floats = new FloatSeq;
+  FloatSeq pi_elmore;
   if (exists) {
-    floats->push_back(c2);
-    floats->push_back(rpi);
-    floats->push_back(c1);
+    pi_elmore.push_back(c2);
+    pi_elmore.push_back(rpi);
+    pi_elmore.push_back(c1);
   }
-  return floats;
+  return pi_elmore;
 }
 
 float

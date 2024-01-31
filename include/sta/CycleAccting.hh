@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -83,7 +83,6 @@ public:
   bool maxCyclesExceeded() const { return max_cycles_exceeded_; }
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(CycleAccting);
   void setHoldAccting(int src_cycle,
 		      int tgt_cycle,
 		      float delay,

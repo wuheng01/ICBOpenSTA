@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "MinMax.hh"
 #include "NetworkClass.hh"
 #include "SdcClass.hh"
@@ -45,8 +44,6 @@ public:
   void setDelays(RiseFallMinMax *delays);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(ClockInsertion);
-
   const Clock *clk_;
   const Pin *pin_;
   RiseFallMinMax delays_[EarlyLate::index_count];

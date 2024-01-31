@@ -129,7 +129,7 @@ namespace sta {
 
   
   void
-  ClusterCutGen::WalkForwardsToTimingEndPointsR(Pin* start_pin, int depth){
+  ClusterCutGen::WalkForwardsToTimingEndPointsR(const Pin* start_pin, int depth){
     if (start_pin && pin_visited_.find(start_pin) == pin_visited_.end()){
       pin_visited_.insert(start_pin);
       Port* start_port = nwk_ -> port(start_pin);
@@ -144,7 +144,7 @@ namespace sta {
 	//traverse forwards
 	PinConnectedPinIterator *connected_pin_iter = nwk_ -> connectedPinIterator(start_pin);
 	while (connected_pin_iter -> hasNext()){
-	  Pin* connected_pin = connected_pin_iter -> next();
+	  const Pin* connected_pin = connected_pin_iter -> next();
 	  WalkForwardsToTimingEndPointsR(connected_pin,depth+1);
 	}
       }
@@ -163,7 +163,7 @@ namespace sta {
   }
   
   void
-  ClusterCutGen::WalkBackwardsToTimingEndPointsR(Pin* start_pin, int depth){
+  ClusterCutGen::WalkBackwardsToTimingEndPointsR(const Pin* start_pin, int depth){
     if (start_pin && pin_visited_.find(start_pin) == pin_visited_.end()){
       pin_visited_.insert(start_pin);
       Port* start_port = nwk_ -> port(start_pin);
@@ -180,7 +180,7 @@ namespace sta {
 	PinSet* drivers = nwk_ -> drivers(start_pin);
 	if (drivers){
 	  PinSet::Iterator drvr_iter(drivers);
-	  Pin* driving_pin = drvr_iter.next();
+	  const Pin* driving_pin = drvr_iter.next();
 	  WalkBackwardsToTimingEndPointsR(driving_pin, depth+1);
 	}
       }

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -133,8 +133,8 @@ VisitPathEnds::visitCheckEnd(const Pin *pin,
 			     PathEndVisitor *visitor,
 			     bool &is_constrained)
 {
-  ClockEdge *src_clk_edge = path->clkEdge(this);
-  Clock *src_clk = path->clock(this);
+  const ClockEdge *src_clk_edge = path->clkEdge(this);
+  const Clock *src_clk = path->clock(this);
   const MinMax *min_max = path_ap->pathMinMax();
   const PathAnalysisPt *tgt_clk_path_ap = path_ap->tgtClkAnalysisPt();
   bool check_clked = false;
@@ -146,11 +146,9 @@ VisitPathEnds::visitCheckEnd(const Pin *pin,
     if (checkEdgeEnabled(edge)
 	&& check_role->pathMinMax() == min_max) {
       TimingArcSet *arc_set = edge->timingArcSet();
-      TimingArcSetArcIterator arc_iter(arc_set);
-      while (arc_iter.hasNext()) {
-	TimingArc *check_arc = arc_iter.next();
-	RiseFall *clk_rf = check_arc->fromTrans()->asRiseFall();
-	if (check_arc->toTrans()->asRiseFall() == end_rf
+      for (TimingArc *check_arc : arc_set->arcs()) {
+	RiseFall *clk_rf = check_arc->fromEdge()->asRiseFall();
+	if (check_arc->toEdge()->asRiseFall() == end_rf
 	    && clk_rf) {
 	  VertexPathIterator tgt_clk_path_iter(tgt_clk_vertex, clk_rf,
 					       tgt_clk_path_ap, this);
@@ -164,62 +162,60 @@ VisitPathEnds::visitCheckEnd(const Pin *pin,
 						   tgt_clk_edge, min_max);
 	    // Ignore generated clock source paths.
 	    if (!tgt_clk_info->isGenClkSrcPath()
-		&& !search_->pathPropagatedToClkSrc(tgt_pin, tgt_clk_path)) {
-	      if (tgt_clk_path->isClock(this)) {
-		check_clked = true;
-		if (!filtered
-		    || search_->matchesFilter(path, tgt_clk_edge)) {
-		  if (src_clk_edge
-		      && tgt_clk != sdc_->defaultArrivalClock()
-		      && sdc_->sameClockGroup(src_clk, tgt_clk)
-		      && !sdc_->clkStopPropagation(tgt_pin, tgt_clk)
-		      && (search_->checkDefaultArrivalPaths()
-			  || src_clk_edge
-			  != sdc_->defaultArrivalClockEdge())
-		      // False paths and path delays override
-		      // paths.
-		      && (exception == nullptr
-			  || exception->isFilter()
-			  || exception->isGroupPath()
-			  || exception->isMultiCycle())) {
-		    MultiCyclePath *mcp=dynamic_cast<MultiCyclePath*>(exception);
-		    if (network_->isLatchData(pin)
-			&& check_role == TimingRole::setup()) {
-		      PathEndLatchCheck path_end(path, check_arc, edge,
-						 tgt_clk_path, mcp, nullptr,
-						 this);
-		      visitor->visit(&path_end);
-		      is_constrained = true;
-		    }
-		    else {
-		      PathEndCheck path_end(path, check_arc, edge,
-					    tgt_clk_path, mcp, this);
-		      visitor->visit(&path_end);
-		      is_constrained = true;
-		    }
-		  }
-		  else if (exception
-			   && exception->isPathDelay()
-			   && (src_clk == nullptr
-			       || sdc_->sameClockGroup(src_clk,
-							       tgt_clk))) {
-		    PathDelay *path_delay = dynamic_cast<PathDelay*>(exception);
-		    if (network_->isLatchData(pin)
-			&& check_role == TimingRole::setup()) {
-		      PathEndLatchCheck path_end(path, check_arc, edge,
-						 tgt_clk_path, nullptr,
-						 path_delay, this);
-		      visitor->visit(&path_end);
-		    }
-		    else {
-		      PathEndPathDelay path_end(path_delay, path, tgt_clk_path,
-						check_arc, edge, this);
-		      visitor->visit(&path_end);
-		      is_constrained = true;
-		    }
-		  }
-		}
-	      }
+                && tgt_clk_path->isClock(this)) {
+              check_clked = true;
+              if (!filtered
+                  || search_->matchesFilter(path, tgt_clk_edge)) {
+                if (src_clk_edge
+                    && tgt_clk != sdc_->defaultArrivalClock()
+                    && sdc_->sameClockGroup(src_clk, tgt_clk)
+                    && !sdc_->clkStopPropagation(tgt_pin, tgt_clk)
+                    && (search_->checkDefaultArrivalPaths()
+                        || src_clk_edge
+                        != sdc_->defaultArrivalClockEdge())
+                    // False paths and path delays override
+                    // paths.
+                    && (exception == nullptr
+                        || exception->isFilter()
+                        || exception->isGroupPath()
+                        || exception->isMultiCycle())) {
+                  MultiCyclePath *mcp=dynamic_cast<MultiCyclePath*>(exception);
+                  if (network_->isLatchData(pin)
+                      && check_role == TimingRole::setup()) {
+                    PathEndLatchCheck path_end(path, check_arc, edge,
+                                               tgt_clk_path, mcp, nullptr,
+                                               this);
+                    visitor->visit(&path_end);
+                    is_constrained = true;
+                  }
+                  else {
+                    PathEndCheck path_end(path, check_arc, edge,
+                                          tgt_clk_path, mcp, this);
+                    visitor->visit(&path_end);
+                    is_constrained = true;
+                  }
+                }
+                else if (exception
+                         && exception->isPathDelay()
+                         && (src_clk == nullptr
+                             || sdc_->sameClockGroup(src_clk,
+                                                     tgt_clk))) {
+                  PathDelay *path_delay = dynamic_cast<PathDelay*>(exception);
+                  if (network_->isLatchData(pin)
+                      && check_role == TimingRole::setup()) {
+                    PathEndLatchCheck path_end(path, check_arc, edge,
+                                               tgt_clk_path, nullptr,
+                                               path_delay, this);
+                    visitor->visit(&path_end);
+                  }
+                  else {
+                    PathEndPathDelay path_end(path_delay, path, tgt_clk_path,
+                                              check_arc, edge, this);
+                    visitor->visit(&path_end);
+                    is_constrained = true;
+                  }
+                }
+              }
 	    }
 	  }
 	}
@@ -250,11 +246,9 @@ VisitPathEnds::visitCheckEndUnclked(const Pin *pin,
     if (checkEdgeEnabled(edge)
 	&& check_role->pathMinMax() == min_max) {
       TimingArcSet *arc_set = edge->timingArcSet();
-      TimingArcSetArcIterator arc_iter(arc_set);
-      while (arc_iter.hasNext()) {
-	TimingArc *check_arc = arc_iter.next();
-	RiseFall *clk_rf = check_arc->fromTrans()->asRiseFall();
-	if (check_arc->toTrans()->asRiseFall() == end_rf
+      for (TimingArc *check_arc : arc_set->arcs()) {
+	RiseFall *clk_rf = check_arc->fromEdge()->asRiseFall();
+	if (check_arc->toEdge()->asRiseFall() == end_rf
 	    && clk_rf
 	    && (!filtered
 		|| search_->matchesFilter(path, nullptr))) {
@@ -307,7 +301,7 @@ VisitPathEnds::visitOutputDelayEnd(const Pin *pin,
       output_delay->delays()->value(end_rf, min_max, margin, exists);
       if (exists) {
 	const Pin *ref_pin = output_delay->refPin();
-	ClockEdge *tgt_clk_edge = output_delay->clkEdge();
+	const ClockEdge *tgt_clk_edge = output_delay->clkEdge();
 	if (!filtered
 	    || search_->matchesFilter(path, tgt_clk_edge)) {
 	  if (ref_pin) {
@@ -350,6 +344,7 @@ VisitPathEnds::visitOutputDelayEnd1(OutputDelay *output_delay,
   // but the exception may be -to clk.
   ExceptionPath *exception = exceptionTo(path, pin, end_rf, tgt_clk_edge,
 					 min_max);
+  const ClockEdge *src_clk_edge = path->clkEdge(this);
   if (exception
       && exception->isPathDelay()) {
     PathDelay *path_delay = dynamic_cast<PathDelay*>(exception);
@@ -357,7 +352,11 @@ VisitPathEnds::visitOutputDelayEnd1(OutputDelay *output_delay,
     visitor->visit(&path_end);
     is_constrained = true;
   }
-  else if (tgt_clk_edge
+  else if (src_clk_edge
+           && (search_->checkDefaultArrivalPaths()
+               || src_clk_edge
+               != sdc_->defaultArrivalClockEdge())
+           && tgt_clk_edge
 	   && sdc_->sameClockGroup(path->clock(this), tgt_clk_edge->clock())
 	   // False paths and path delays override.
 	   && (exception == nullptr
@@ -384,7 +383,7 @@ VisitPathEnds::visitGatedClkEnd(const Pin *pin,
 				PathEndVisitor *visitor,
 				bool &is_constrained)
 {
-  ClockEdge *src_clk_edge = path->clkEdge(this);
+  const ClockEdge *src_clk_edge = path->clkEdge(this);
   if (src_clk_edge) {
     GatedClk *gated_clk = search_->gatedClk();
     Clock *src_clk = src_clk_edge->clock();
@@ -416,7 +415,6 @@ VisitPathEnds::visitGatedClkEnd(const Pin *pin,
 	    && clk_edge != sdc_->defaultArrivalClockEdge()
 	    // Ignore generated clock source paths.
 	    && !path->clkInfo(this)->isGenClkSrcPath()
-	    && !search_->pathPropagatedToClkSrc(clk_pin, clk_path)
 	    && !sdc_->clkStopPropagation(pin, clk)
 	    && clk_vertex->hasDownstreamClkPin()) {
 	  TimingRole *check_role = (min_max == MinMax::max())
@@ -494,7 +492,7 @@ VisitPathEnds::visitDataCheckEnd(const Pin *pin,
 				 PathEndVisitor *visitor,
 				 bool &is_constrained)
 {
-  ClockEdge *src_clk_edge = path->clkEdge(this);
+  const ClockEdge *src_clk_edge = path->clkEdge(this);
   if (src_clk_edge) {
     DataCheckSet *checks = sdc_->dataChecksTo(pin);
     if (checks) {
@@ -542,8 +540,7 @@ VisitPathEnds::visitDataCheckEnd1(DataCheck *check,
     const ClockEdge *tgt_clk_edge = tgt_clk_path->clkEdge(this);
     // Ignore generated clock source paths.
     if (tgt_clk_edge
-        && !tgt_clk_path->clkInfo(this)->isGenClkSrcPath()
-	&& !search_->pathPropagatedToClkSrc(from_pin, tgt_clk_path)) {
+        && !tgt_clk_path->clkInfo(this)->isGenClkSrcPath()) {
       found_from_path = true;
       const Clock *tgt_clk = tgt_clk_edge->clock();
       ExceptionPath *exception = exceptionTo(path, pin, end_rf,
@@ -587,7 +584,6 @@ VisitPathEnds::visitUnconstrainedPathEnds(const Pin *pin,
 	&& min_max->matches(path_min_max)
 	// Ignore generated clock source paths.
 	&& !path->clkInfo(this)->isGenClkSrcPath()
- 	&& !search_->pathPropagatedToClkSrc(pin, path)
 	&& (!filtered
 	    || search_->matchesFilter(path, nullptr))
 	&& !falsePathTo(path, pin, path->transition(this),

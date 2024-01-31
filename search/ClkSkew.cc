@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
 
 #include <cmath> // abs
 
-#include "DisallowCopyAssign.hh"
 #include "Report.hh"
 #include "Debug.hh"
 #include "Fuzzy.hh"
@@ -40,6 +39,7 @@ namespace sta {
 
 using std::abs;
 
+// Source/target clock skew.
 class ClkSkew
 {
 public:
@@ -173,15 +173,16 @@ ClkSkews::findWorstClkSkew(const Corner *corner,
   ClockSet clks;
   for (Clock *clk : *sdc_->clocks())
     clks.insert(clk);
-  float worst_skew = INF;
   ClkSkewMap skews;
   findClkSkew(&clks, corner, setup_hold, skews);
+  float worst_skew = 0.0;
   for (auto clk_skew_itr : skews) {
     ClkSkew *clk_skew = clk_skew_itr.second;
     float skew = clk_skew->skew();
-    if (skew < worst_skew)
+    if (abs(skew) > abs(worst_skew))
       worst_skew = skew;
   }
+  skews.deleteContents();
   return worst_skew;
 }
 
@@ -191,9 +192,7 @@ ClkSkews::findClkSkew(ClockSet *clks,
 		      const SetupHold *setup_hold,
 		      ClkSkewMap &skews)
 {	      
-  VertexSet::ConstIterator reg_clk_iter(graph_->regClkVertices());
-  while (reg_clk_iter.hasNext()) {
-    Vertex *src_vertex = reg_clk_iter.next();
+  for (Vertex *src_vertex : *graph_->regClkVertices()) {
     if (hasClkPaths(src_vertex, clks)) {
       VertexOutEdgeIterator edge_iter(src_vertex, graph_);
       while (edge_iter.hasNext()) {
@@ -219,8 +218,8 @@ ClkSkews::hasClkPaths(Vertex *vertex,
   VertexPathIterator path_iter(vertex, this);
   while (path_iter.hasNext()) {
     PathVertex *path = path_iter.next();
-    Clock *path_clk = path->clock(this);
-    if (clks->hasKey(path_clk))
+    const Clock *path_clk = path->clock(this);
+    if (clks->hasKey(const_cast<Clock*>(path_clk)))
       return true;
   }
   return false;
@@ -235,8 +234,7 @@ ClkSkews::findClkSkewFrom(Vertex *src_vertex,
 			  const SetupHold *setup_hold,
 			  ClkSkewMap &skews)
 {
-  VertexSet endpoints;
-  findFanout(q_vertex, endpoints);
+  VertexSet endpoints = findFanout(q_vertex);
   VertexSet::Iterator end_iter(endpoints);
   while (end_iter.hasNext()) {
     Vertex *end = end_iter.next();
@@ -280,10 +278,10 @@ ClkSkews::findClkSkew(Vertex *src_vertex,
     if (src_cell->isClockGate()) {
       continue;
     }
-    Clock *src_clk = src_path->clock(this);
+    const Clock *src_clk = src_path->clock(this);
     if (src_rf->matches(src_path->transition(this))
 	&& src_path->minMax(this) == setup_hold
-	&& clks->hasKey(src_clk)) {
+	&& clks->hasKey(const_cast<Clock*>(src_clk))) {
       Corner *src_corner = src_path->pathAnalysisPt(this)->corner();
       if (corner == nullptr
 	  || src_corner == corner) {
@@ -294,14 +292,14 @@ ClkSkews::findClkSkew(Vertex *src_vertex,
           if (tgt_cell->isClockGate()) {
             continue;
           }
-	  Clock *tgt_clk = tgt_path->clock(this);
+	  const Clock *tgt_clk = tgt_path->clock(this);
 	  if (tgt_clk == src_clk
 	      && tgt_path->isClock(this)
 	      && tgt_rf->matches(tgt_path->transition(this))
 	      && tgt_path->minMax(this) == tgt_min_max
 	      && tgt_path->pathAnalysisPt(this)->corner() == src_corner) {
 	    ClkSkew probe(src_path, tgt_path, this);
-	    ClkSkew *clk_skew = skews.findKey(src_clk);
+	    ClkSkew *clk_skew = skews.findKey(const_cast<Clock*>(src_clk));
 	    debugPrint(debug_, "clk_skew", 2,
                        "%s %s %s -> %s %s %s crpr = %s skew = %s",
                        network_->pathName(src_path->pin(this)),
@@ -316,7 +314,7 @@ ClkSkews::findClkSkew(Vertex *src_vertex,
 	      clk_skew = new ClkSkew(probe);
 	      skews[src_clk] = clk_skew;
 	    }
-	    else if (fuzzyGreater(probe.skew(), clk_skew->skew()))
+	    else if (abs(probe.skew()) > abs(clk_skew->skew()))
 	      *clk_skew = probe;
 	  }
 	}
@@ -325,7 +323,7 @@ ClkSkews::findClkSkew(Vertex *src_vertex,
   }
 }
 
-class FanOutSrchPred : public SearchPred0
+class FanOutSrchPred : public SearchPred1
 {
 public:
   FanOutSrchPred(const StaState *sta);
@@ -333,7 +331,7 @@ public:
 };
 
 FanOutSrchPred::FanOutSrchPred(const StaState *sta) :
-  SearchPred0(sta)
+  SearchPred1(sta)
 {
 }
 
@@ -341,19 +339,19 @@ bool
 FanOutSrchPred::searchThru(Edge *edge)
 {
   TimingRole *role = edge->role();
-  return role == TimingRole::wire()
-    || role == TimingRole::combinational()
-    || role == TimingRole::tristateEnable()
-    || role == TimingRole::tristateDisable();
+  return SearchPred1::searchThru(edge)
+    && (role == TimingRole::wire()
+        || role == TimingRole::combinational()
+        || role == TimingRole::tristateEnable()
+        || role == TimingRole::tristateDisable());
 }
 
-void
-ClkSkews::findFanout(Vertex *from,
-		     // Return value.
-		     VertexSet &endpoints)
+VertexSet
+ClkSkews::findFanout(Vertex *from)
 {
   debugPrint(debug_, "fanout", 1, "%s",
              from->name(sdc_network_));
+  VertexSet endpoints(graph_);
   FanOutSrchPred pred(this);
   BfsFwdIterator fanout_iter(BfsIndex::other, &pred, this);
   fanout_iter.enqueue(from);
@@ -365,6 +363,34 @@ ClkSkews::findFanout(Vertex *from,
       endpoints.insert(fanout);
     }
     fanout_iter.enqueueAdjacentVertices(fanout);
+  }
+  return endpoints;
+}
+
+////////////////////////////////////////////////////////////////
+
+void
+ClkSkews::findClkDelays(const Clock *clk,
+                        // Return values.
+                        ClkDelays &delays)
+{
+  for (Vertex *clk_vertex : *graph_->regClkVertices()) {
+    VertexPathIterator path_iter(clk_vertex, this);
+    while (path_iter.hasNext()) {
+      PathVertex *path = path_iter.next();
+      const ClockEdge *path_clk_edge = path->clkEdge(this);
+      if (path_clk_edge) {
+        const RiseFall *clk_rf = path_clk_edge->transition();
+        const Clock *path_clk = path_clk_edge->clock();
+        if (path_clk == clk) {
+          Arrival arrival = path->arrival(this);
+          Delay clk_delay = delayAsFloat(arrival) - path_clk_edge->time();
+          const MinMax *min_max = path->minMax(this);
+          const RiseFall *rf = path->transition(this);
+          delays[clk_rf->index()][rf->index()].setValue(min_max, clk_delay);
+        }
+      }
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,8 +16,8 @@
 
 #pragma once
 
-#include <stdarg.h>
-#include "DisallowCopyAssign.hh"
+#include <cstdarg>
+
 #include "Map.hh"
 #include "StringUtil.hh"
 
@@ -49,9 +49,6 @@ protected:
   bool debug_on_;
   DebugMap *debug_map_;
   int stats_level_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(Debug);
 };
 
 // Inlining a varargs function would eval the args, which can

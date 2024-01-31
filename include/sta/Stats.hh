@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,8 +16,7 @@
 
 #pragma once
 
-#include <stddef.h>  // size_t
-#include "DisallowCopyAssign.hh"
+#include <cstddef>  // size_t
 
 namespace sta {
 
@@ -33,8 +32,6 @@ public:
   void report(const char *step);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(Stats);
-
   double elapsed_begin_;
   double user_begin_;
   double system_begin_;

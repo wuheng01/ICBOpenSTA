@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "MinMax.hh"
 #include "Transition.hh"
 #include "RiseFallMinMax.hh"
@@ -31,12 +30,13 @@ typedef MinMaxIntValues FanoutValues;
 class PortExtCap
 {
 public:
-  explicit PortExtCap(Port *port);
-  Port *port() { return port_; }
+  PortExtCap(const Port *port);
+  const Port *port() { return port_; }
   void pinCap(const RiseFall *rf,
 	      const MinMax *min_max,
 	      // Return values.
-	      float &cap, bool &exists);
+	      float &cap,
+              bool &exists);
   RiseFallMinMax *pinCap() { return &pin_cap_; }
   void setPinCap(float cap,
 		 const RiseFall *rf,
@@ -44,7 +44,8 @@ public:
   void wireCap(const RiseFall *rf,
 	       const MinMax *min_max,
 	       // Return values.
-	       float &cap, bool &exists);
+	       float &cap,
+               bool &exists);
   RiseFallMinMax *wireCap() { return &wire_cap_; }
   void setWireCap(float cap,
 		  const RiseFall *rf,
@@ -58,9 +59,7 @@ public:
   FanoutValues *fanout() { return &fanout_; }
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(PortExtCap);
-
-  Port *port_;
+  const Port *port_;
   RiseFallMinMax pin_cap_;
   RiseFallMinMax wire_cap_;
   FanoutValues fanout_;

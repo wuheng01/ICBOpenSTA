@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "MinMax.hh"
 #include "Vector.hh"
 #include "StringSet.hh"
@@ -93,8 +92,6 @@ private:
   ParasiticAnalysisPtSeq parasitic_analysis_pts_;
   DcalcAnalysisPtSeq dcalc_analysis_pts_;
   PathAnalysisPtSeq path_analysis_pts_;
-
-  DISALLOW_COPY_AND_ASSIGN(Corners);
 };
 
 class Corner
@@ -111,7 +108,7 @@ public:
   PathAnalysisPt *findPathAnalysisPt(const MinMax *min_max) const;
   void addLiberty(LibertyLibrary *lib,
 		  const MinMax *min_max);
-  LibertySeq *libertyLibraries(const MinMax *min_max);
+  const LibertySeq &libertyLibraries(const MinMax *min_max) const;
   int libertyIndex(const MinMax *min_max) const;
 
 protected:
@@ -131,7 +128,6 @@ private:
   LibertySeq liberty_[MinMax::index_count];
 
   friend class Corners;
-  DISALLOW_COPY_AND_ASSIGN(Corner);
 };
 
 } // namespace

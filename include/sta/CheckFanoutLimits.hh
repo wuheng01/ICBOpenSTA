@@ -1,6 +1,6 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
-//
+// Copyright (c) 2023, Parallax Software, Inc.
+// 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
@@ -38,9 +38,9 @@ public:
   // Return pins with the min/max fanout limit slack.
   // net=null check all nets
   // corner=nullptr checks all corners.
-  PinSeq *checkFanoutLimits(Net *net,
-                            bool violators,
-                            const MinMax *min_max);
+  PinSeq checkFanoutLimits(const Net *net,
+                           bool violators,
+                           const MinMax *min_max);
 
   void findLimit(const Pin *pin,
 		 const MinMax *min_max,
@@ -55,19 +55,19 @@ protected:
 		   float limit1,
 		   // Return values.
 		   float &fanout,
-		   float &slack,
-		   float &limit) const;
-  void checkFanoutLimits(Instance *inst,
+		   float &limit,
+		   float &slack) const;
+  void checkFanoutLimits(const Instance *inst,
                          bool violators,
                          const MinMax *min_max,
-                         PinSeq *fanout_pins,
+                         PinSeq &fanout_pins,
                          float &min_slack);
-  void checkFanoutLimits(Pin *pin,
+  void checkFanoutLimits(const Pin *pin,
                          bool violators,
                          const MinMax *min_max,
-                         PinSeq *fanout_pins,
+                         PinSeq &fanout_pins,
                          float &min_slack);
-  bool checkPin(Pin *pin);
+  bool checkPin(const Pin *pin);
 
   const Sta *sta_;
 };

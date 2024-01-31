@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "RiseFallMinMax.hh"
 #include "SdcClass.hh"
 
@@ -31,32 +30,30 @@ class PortDelay
 {
 public:
   RiseFallMinMax *delays() { return &delays_; }
-  Pin *pin() const { return pin_; }
+  const Pin *pin() const { return pin_; }
   PinSet &leafPins() { return leaf_pins_; }
   Clock *clock() const;
-  ClockEdge *clkEdge() const { return clk_edge_; }
+  const ClockEdge *clkEdge() const { return clk_edge_; }
   bool sourceLatencyIncluded() const;
   void setSourceLatencyIncluded(bool included);
   bool networkLatencyIncluded() const;
   void setNetworkLatencyIncluded(bool included);
-  Pin *refPin() const { return ref_pin_; }
+  const Pin *refPin() const { return ref_pin_; }
+  void setRefPin(const Pin *ref_pin);
   RiseFall *refTransition() const;
 
 protected:
-  PortDelay(Pin *pin,
-	    ClockEdge *clk_edge,
-	    Pin *ref_pin);
+  PortDelay(const Pin *pin,
+	    const ClockEdge *clk_edge,
+            const Network *network);
 
-  Pin *pin_;
-  ClockEdge *clk_edge_;
+  const Pin *pin_;
+  const ClockEdge *clk_edge_;
   bool source_latency_included_;
   bool network_latency_included_;
-  Pin *ref_pin_;
+  const Pin *ref_pin_;
   RiseFallMinMax delays_;
   PinSet leaf_pins_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PortDelay);
 };
 
 class InputDelay : public PortDelay
@@ -65,15 +62,12 @@ public:
   int index() const { return index_; }
 
 protected:
-  InputDelay(Pin *pin,
-	     ClockEdge *clk_edge,
-	     Pin *ref_pin,
+  InputDelay(const Pin *pin,
+	     const ClockEdge *clk_edge,
 	     int index,
-	     Network *network);
+	     const Network *network);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(InputDelay);
-
   int index_;
 
   friend class Sdc;
@@ -84,14 +78,11 @@ class OutputDelay : public PortDelay
 public:
 
 protected:
-  OutputDelay(Pin *pin,
-	      ClockEdge *clk_edge,
-	      Pin *ref_pin,
-	      Network *network);
+  OutputDelay(const Pin *pin,
+	      const ClockEdge *clk_edge,
+	      const Network *network);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(OutputDelay);
-
   friend class Sdc;
 };
 

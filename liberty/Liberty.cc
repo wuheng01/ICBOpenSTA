@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #include "Liberty.hh"
 
-#include "DisallowCopyAssign.hh"
 #include "EnumNameMap.hh"
 #include "Report.hh"
 #include "Debug.hh"
@@ -37,14 +36,12 @@
 #include "EquivCells.hh"
 #include "Network.hh"
 #include "PortDirection.hh"
+#include "Corner.hh"
+#include "DcalcAnalysisPt.hh"
 
 namespace sta {
 
-typedef Set<TimingModel*> TimingModelSet;
-typedef Set<FuncExpr*> FuncExprSet;
 typedef Set<LatchEnable*> LatchEnableSet;
-
-bool LibertyLibrary::found_rise_fall_caps_ = false;
 
 void
 initLiberty()
@@ -85,7 +82,9 @@ LibertyLibrary::LibertyLibrary(const char *name,
   default_operating_conditions_(nullptr),
   ocv_arc_depth_(0.0),
   default_ocv_derate_(nullptr),
-  buffers_(nullptr)
+  buffers_(nullptr),
+  inverters_(nullptr),
+  driver_waveform_default_(nullptr)
 {
   // Scalar templates are builtin.
   for (int i = 0; i != table_template_type_count; i++) {
@@ -95,12 +94,12 @@ LibertyLibrary::LibertyLibrary(const char *name,
     addTableTemplate(scalar_template, type);
   }
 
-  for (auto tr_index : RiseFall::rangeIndex()) {
-    wire_slew_degradation_tbls_[tr_index] = nullptr;
-    input_threshold_[tr_index] = input_threshold_default_;
-    output_threshold_[tr_index] = output_threshold_default_;
-    slew_lower_threshold_[tr_index] = slew_lower_threshold_default_;
-    slew_upper_threshold_[tr_index] = slew_upper_threshold_default_;
+  for (auto rf_index : RiseFall::rangeIndex()) {
+    wire_slew_degradation_tbls_[rf_index] = nullptr;
+    input_threshold_[rf_index] = input_threshold_default_;
+    output_threshold_[rf_index] = output_threshold_default_;
+    slew_lower_threshold_[rf_index] = slew_lower_threshold_default_;
+    slew_upper_threshold_[rf_index] = slew_upper_threshold_default_;
   }
 }
 
@@ -112,8 +111,8 @@ LibertyLibrary::~LibertyLibrary()
   scale_factors_map_.deleteContents();
   delete scale_factors_;
 
-  for (auto tr_index : RiseFall::rangeIndex()) {
-    TableModel *model = wire_slew_degradation_tbls_[tr_index];
+  for (auto rf_index : RiseFall::rangeIndex()) {
+    TableModel *model = wire_slew_degradation_tbls_[rf_index];
     delete model;
   }
   operating_conditions_.deleteContents();
@@ -127,6 +126,9 @@ LibertyLibrary::~LibertyLibrary()
     stringDelete(supply_name);
   }
   delete buffers_;
+  delete inverters_;
+  driver_waveform_map_.deleteContents();
+  delete driver_waveform_default_;
 }
 
 LibertyCell *
@@ -135,16 +137,33 @@ LibertyLibrary::findLibertyCell(const char *name) const
   return static_cast<LibertyCell*>(findCell(name));
 }
 
-void
-LibertyLibrary::findLibertyCellsMatching(PatternMatch *pattern,
-					 LibertyCellSeq *cells)
+LibertyCellSeq
+LibertyLibrary::findLibertyCellsMatching(PatternMatch *pattern)
 {
+  LibertyCellSeq matches;
   LibertyCellIterator cell_iter(this);
   while (cell_iter.hasNext()) {
     LibertyCell *cell = cell_iter.next();
     if (pattern->match(cell->name()))
-      cells->push_back(cell);
+      matches.push_back(cell);
   }
+  return matches;
+}
+
+LibertyCellSeq *
+LibertyLibrary::inverters()
+{
+  if (inverters_ == nullptr) {
+    inverters_ = new LibertyCellSeq;
+    LibertyCellIterator cell_iter(this);
+    while (cell_iter.hasNext()) {
+      LibertyCell *cell = cell_iter.next();
+      if (!cell->dontUse()
+          && cell->isInverter())
+        inverters_->push_back(cell);
+    }
+  }
+  return inverters_;
 }
 
 LibertyCellSeq *
@@ -181,6 +200,15 @@ LibertyLibrary::findBusDcl(const char *name) const
   return bus_dcls_.findKey(name);
 }
 
+BusDclSeq
+LibertyLibrary::busDcls() const
+{
+  BusDclSeq dcls;
+  for (auto name_dcl : bus_dcls_)
+    dcls.push_back(name_dcl.second);
+  return dcls;
+}
+
 void
 LibertyLibrary::addTableTemplate(TableTemplate *tbl_template,
 				 TableTemplateType type)
@@ -193,6 +221,19 @@ LibertyLibrary::findTableTemplate(const char *name,
 				  TableTemplateType type)
 {
   return template_maps_[int(type)][name];
+}
+
+TableTemplateSeq
+LibertyLibrary::tableTemplates() const
+{
+  TableTemplateSeq tbl_templates;
+  for (int type = 0; type < table_template_type_count; type++) {
+    for (auto name_template : template_maps_[type]) {
+      TableTemplate *tbl_template = name_template.second;
+      tbl_templates.push_back(tbl_template);
+    }
+  }
+  return tbl_templates;
 }
 
 void
@@ -248,7 +289,7 @@ LibertyLibrary::scaleFactor(ScaleFactorType type,
 
 float
 LibertyLibrary::scaleFactor(ScaleFactorType type,
-			    int tr_index,
+			    int rf_index,
 			    const LibertyCell *cell,
 			    const Pvt *pvt) const
 {
@@ -258,18 +299,18 @@ LibertyLibrary::scaleFactor(ScaleFactorType type,
   // All scale factors are unity for nominal pvt.
   if (pvt) {
     ScaleFactors *scale_factors = nullptr;
-    // Cell level scale factors have precidence over library scale factors.
+    // Cell level scale factors have precedence over library scale factors.
     if (cell)
       scale_factors = cell->scaleFactors();
     if (scale_factors == nullptr)
       scale_factors = scale_factors_;
     if (scale_factors) {
       float process_scale = 1.0F + (pvt->process() - nominal_process_)
-	* scale_factors->scale(type, ScaleFactorPvt::process, tr_index);
+	* scale_factors->scale(type, ScaleFactorPvt::process, rf_index);
       float temp_scale = 1.0F + (pvt->temperature() - nominal_temperature_)
-	* scale_factors->scale(type, ScaleFactorPvt::temp, tr_index);
+	* scale_factors->scale(type, ScaleFactorPvt::temp, rf_index);
       float volt_scale = 1.0F + (pvt->voltage() - nominal_voltage_)
-	* scale_factors->scale(type, ScaleFactorPvt::volt, tr_index);
+	* scale_factors->scale(type, ScaleFactorPvt::volt, rf_index);
       float scale = process_scale * temp_scale * volt_scale;
       return scale;
     }
@@ -281,10 +322,10 @@ void
 LibertyLibrary::setWireSlewDegradationTable(TableModel *model,
 			 		    RiseFall *rf)
 {
-  int tr_index = rf->index();
-  if (wire_slew_degradation_tbls_[tr_index])
-    delete wire_slew_degradation_tbls_[tr_index];
-  wire_slew_degradation_tbls_[tr_index] = model;
+  int rf_index = rf->index();
+  if (wire_slew_degradation_tbls_[rf_index])
+    delete wire_slew_degradation_tbls_[rf_index];
+  wire_slew_degradation_tbls_[rf_index] = model;
 }
 
 TableModel *
@@ -294,52 +335,48 @@ LibertyLibrary::wireSlewDegradationTable(const RiseFall *rf) const
 }
 
 float
-LibertyLibrary::degradeWireSlew(const LibertyCell *cell,
-				const RiseFall *rf,
-				const Pvt *pvt,
+LibertyLibrary::degradeWireSlew(const RiseFall *rf,
 				float in_slew,
 				float wire_delay) const
 {
   const TableModel *model = wireSlewDegradationTable(rf);
   if (model)
-    return degradeWireSlew(cell, pvt, model, in_slew, wire_delay);
+    return degradeWireSlew(model, in_slew, wire_delay);
   else
     return in_slew;
 }
 
 float
-LibertyLibrary::degradeWireSlew(const LibertyCell *cell,
-				const Pvt *pvt,
-				const TableModel *model,
+LibertyLibrary::degradeWireSlew(const TableModel *model,
 				float in_slew,
 				float wire_delay) const
 {
   switch (model->order()) {
   case 0:
-    return model->findValue(this, cell, pvt, 0.0, 0.0, 0.0);
+    return model->findValue(0.0, 0.0, 0.0);
   case 1: {
-    TableAxis *axis1 = model->axis1();
+    const TableAxis *axis1 = model->axis1();
     TableAxisVariable var1 = axis1->variable();
     if (var1 == TableAxisVariable::output_pin_transition)
-      return model->findValue(this, cell, pvt, in_slew, 0.0, 0.0);
+      return model->findValue(in_slew, 0.0, 0.0);
     else if (var1 == TableAxisVariable::connect_delay)
-      return model->findValue(this, cell, pvt, wire_delay, 0.0, 0.0);
+      return model->findValue(wire_delay, 0.0, 0.0);
     else {
       criticalError(231, "unsupported slew degradation table axes");
       return 0.0;
     }
   }
   case 2: {
-    TableAxis *axis1 = model->axis1();
-    TableAxis *axis2 = model->axis2();
+    const TableAxis *axis1 = model->axis1();
+    const TableAxis * axis2 = model->axis2();
     TableAxisVariable var1 = axis1->variable();
     TableAxisVariable var2 = axis2->variable();
     if (var1 == TableAxisVariable::output_pin_transition
 	&& var2 == TableAxisVariable::connect_delay)
-      return model->findValue(this, cell, pvt, in_slew, wire_delay, 0.0);
+      return model->findValue(in_slew, wire_delay, 0.0);
     else if (var1 == TableAxisVariable::connect_delay
 	     && var2 == TableAxisVariable::output_pin_transition)
-      return model->findValue(this, cell, pvt, wire_delay, in_slew, 0.0);
+      return model->findValue(wire_delay, in_slew, 0.0);
     else {
       criticalError(232, "unsupported slew degradation table axes");
       return 0.0;
@@ -354,20 +391,20 @@ LibertyLibrary::degradeWireSlew(const LibertyCell *cell,
 // Check for supported axis variables.
 // Return true if axes are supported.
 bool
-LibertyLibrary::checkSlewDegradationAxes(Table *table)
+LibertyLibrary::checkSlewDegradationAxes(const TablePtr &table)
 {
   switch (table->order()) {
   case 0:
     return true;
   case 1: {
-    TableAxis *axis1 = table->axis1();
+    const TableAxis *axis1 = table->axis1();
     TableAxisVariable var1 = axis1->variable();
     return var1 == TableAxisVariable::output_pin_transition
       || var1 == TableAxisVariable::connect_delay;
   }
   case 2: {
-    TableAxis *axis1 = table->axis1();
-    TableAxis *axis2 = table->axis2();
+    const TableAxis *axis1 = table->axis1();
+    const TableAxis *axis2 = table->axis2();
     TableAxisVariable var1 = axis1->variable();
     TableAxisVariable var2 = axis2->variable();
     return (var1 == TableAxisVariable::output_pin_transition
@@ -738,11 +775,14 @@ LibertyLibrary::makeCornerMap(LibertyCell *cell1,
     auto arc_set2 = cell2->findTimingArcSet(arc_set1);
     if (arc_set2) {
       if (link) {
-	TimingArcSetArcIterator arc_iter1(arc_set1);
-	TimingArcSetArcIterator arc_iter2(arc_set2);
-	while (arc_iter1.hasNext() && arc_iter2.hasNext()) {
-	  TimingArc *arc1 = arc_iter1.next();
-	  TimingArc *arc2 = arc_iter2.next();
+        const TimingArcSeq &arcs1 = arc_set1->arcs();
+        const TimingArcSeq &arcs2 = arc_set2->arcs();
+        auto arc_itr1 = arcs1.begin(), arc_itr2 = arcs2.begin();
+        for (;
+             arc_itr1 != arcs1.end() && arc_itr2 != arcs2.end();
+             arc_itr1++, arc_itr2++) {
+          TimingArc *arc1 = *arc_itr1;
+          TimingArc *arc2 = *arc_itr2;
 	  if (TimingArc::equiv(arc1, arc2))
 	    arc1->setCornerArc(arc2, ap_index);
 	}
@@ -757,6 +797,23 @@ LibertyLibrary::makeCornerMap(LibertyCell *cell1,
 		   arc_set1->role()->asString(),
 		   cell2->library()->name(),
 		   cell2->name());
+  }
+}
+
+void
+LibertyLibrary::checkCorners(LibertyCell *cell,
+                             Corners *corners,
+                             Report *report)
+{
+  for (const Corner *corner : *corners) {
+    for (auto min_max : MinMax::range()) {
+      if (!cell->checkCornerCell(corner, min_max))
+        report->error(705, "Liberty cell %s/%s for corner %s/%s not found.",
+                      cell->libertyLibrary()->name(),
+                      cell->name(),
+                      corner->name(),
+                      min_max->asString());
+    }
   }
 }
 
@@ -820,10 +877,26 @@ LibertyLibrary::supplyExists(const char *supply_name) const
   return supply_voltage_map_.hasKey(supply_name);
 }
 
+DriverWaveform *
+LibertyLibrary::findDriverWaveform(const char *name)
+{
+  return driver_waveform_map_[name];
+}
+
+void
+LibertyLibrary::addDriverWaveform(DriverWaveform *driver_waveform)
+{
+  if (driver_waveform->name())
+    driver_waveform_map_[driver_waveform->name()] = driver_waveform;
+  else {
+    delete driver_waveform_default_;
+    driver_waveform_default_ = driver_waveform;
+  }
+}
+
 ////////////////////////////////////////////////////////////////
 
-LibertyCellIterator::LibertyCellIterator(const LibertyLibrary *
-						       library):
+LibertyCellIterator::LibertyCellIterator(const LibertyLibrary *library) :
   iter_(library->cell_map_)
 {
 }
@@ -845,15 +918,19 @@ LibertyCellIterator::next()
 LibertyCell::LibertyCell(LibertyLibrary *library,
 			 const char *name,
 			 const char *filename) :
-  ConcreteCell(library, name, true, filename),
+  ConcreteCell(name, filename, true, library),
   liberty_library_(library),
   area_(0.0),
   dont_use_(false),
   is_macro_(false),
   is_memory_(false),
   is_pad_(false),
+  is_clock_cell_(false),
   is_level_shifter_(false),
-  has_internal_ports_(false),
+  level_shifter_type_(LevelShifterType::HL_LH),
+  is_isolation_cell_(false),
+  always_on_(false),
+  switch_cell_type_(SwitchCellType::fine_grain),
   interface_timing_(false),
   clock_gate_type_(ClockGateType::none),
   has_infered_reg_timing_arcs_(false),
@@ -863,7 +940,8 @@ LibertyCell::LibertyCell(LibertyLibrary *library,
   ocv_derate_(nullptr),
   is_disabled_constraint_(false),
   leakage_power_(0.0),
-  leakage_power_exists_(false)
+  leakage_power_exists_(false),
+  has_internal_ports_(false)
 {
   liberty_cell_ = this;
 }
@@ -873,7 +951,6 @@ LibertyCell::~LibertyCell()
   mode_defs_.deleteContents();
   latch_d_to_q_map_.deleteContents();
 
-  deleteTimingArcAttrs();
   timing_arc_sets_.deleteContents();
   port_timing_arc_set_map_.deleteContents();
   timing_arc_set_from_map_.deleteContents();
@@ -893,31 +970,23 @@ LibertyCell::~LibertyCell()
   pg_port_map_.deleteContents();
 }
 
-void
-LibertyCell::deleteTimingArcAttrs()
-{
-  for (auto attrs : timing_arc_attrs_) {
-    attrs->deleteContents();
-    delete attrs;
-  }
-}
-
 LibertyPort *
 LibertyCell::findLibertyPort(const char *name) const
 {
   return static_cast<LibertyPort*>(findPort(name));
 }
 
-void
-LibertyCell::findLibertyPortsMatching(PatternMatch *pattern,
-				      LibertyPortSeq *ports) const
+LibertyPortSeq
+LibertyCell::findLibertyPortsMatching(PatternMatch *pattern) const
 {
+  LibertyPortSeq matches;
   LibertyCellPortIterator port_iter(this);
   while (port_iter.hasNext()) {
     LibertyPort *port = port_iter.next();
     if (pattern->match(port->name()))
-      ports->push_back(port);
+      matches.push_back(port);
   }
+  return matches;
 }
 
 void
@@ -1010,9 +1079,39 @@ LibertyCell::LibertyCell::setIsPad(bool is_pad)
 }
 
 void
-LibertyCell::LibertyCell::setIsLevelShifter(bool is_level_shifter)
+LibertyCell::LibertyCell::setIsClockCell(bool is_clock_cell)
+{
+  is_clock_cell_ = is_clock_cell;
+}
+
+void
+LibertyCell::setIsLevelShifter(bool is_level_shifter)
 {
   is_level_shifter_ = is_level_shifter;
+}
+
+void
+LibertyCell::setLevelShifterType(LevelShifterType level_shifter_type)
+{
+  level_shifter_type_ = level_shifter_type;
+}
+
+void
+LibertyCell::setIsIsolationCell(bool is_isolation_cell)
+{
+  is_isolation_cell_ = is_isolation_cell;
+}
+
+void
+LibertyCell::setAlwaysOn(bool always_on)
+{
+  always_on_ = always_on;
+}
+
+void
+LibertyCell::setSwitchCellType(SwitchCellType switch_cell_type)
+{
+  switch_cell_type_ = switch_cell_type;
 }
 
 void
@@ -1133,8 +1232,6 @@ unsigned
 LibertyCell::addTimingArcSet(TimingArcSet *arc_set)
 {
   int set_index = timing_arc_sets_.size();
-  if (set_index > timing_arc_set_index_max)
-    criticalError(235, "timing arc set max index exceeded");
   timing_arc_sets_.push_back(arc_set);
 
   LibertyPort *from = arc_set->from();
@@ -1148,28 +1245,16 @@ LibertyCell::addTimingArcSet(TimingArcSet *arc_set)
 }
 
 void
-LibertyCell::addTimingArcAttrs(TimingArcAttrs *attrs)
-{
-  timing_arc_attrs_.push_back(attrs);
-}
-
-void
 LibertyCell::addInternalPower(InternalPower *power)
 {
   internal_powers_.push_back(power);
   port_internal_powers_[power->port()].push_back(power);
 }
 
-InternalPowerSeq *
-LibertyCell::internalPowers()
-{
-  return &internal_powers_;
-}
-
-InternalPowerSeq *
+const InternalPowerSeq &
 LibertyCell::internalPowers(const LibertyPort *port)
 {
-  return &port_internal_powers_[port];
+  return port_internal_powers_[port];
 }
 
 void
@@ -1219,8 +1304,7 @@ LibertyCell::finish(bool infer_latches,
   makeTimingArcPortMaps();
   findDefaultCondArcs();
   makeLatchEnables(report, debug);
-  if (infer_latches
-      && !interface_timing_)
+  if (infer_latches)
     inferLatchRoles(debug);
 }
 
@@ -1334,20 +1418,26 @@ LibertyCell::makeTimingArcPortMaps()
   }
 }
 
-TimingArcSetSeq *
+const TimingArcSetSeq &
 LibertyCell::timingArcSets(const LibertyPort *from,
 			   const LibertyPort *to) const
 {
+  TimingArcSetSeq *arc_sets = nullptr;
   if (from && to) {
     LibertyPortPair port_pair(from, to);
-    return port_timing_arc_set_map_.findKey(port_pair);
+    arc_sets = port_timing_arc_set_map_.findKey(port_pair);
   }
   else if (from)
-    return timing_arc_set_from_map_.findKey(from);
+    arc_sets = timing_arc_set_from_map_.findKey(from);
   else if (to)
-    return timing_arc_set_to_map_.findKey(to);
-  else
-    return nullptr;
+    arc_sets = timing_arc_set_to_map_.findKey(to);
+
+  if (arc_sets)
+    return *arc_sets;
+  else {
+    static TimingArcSetSeq null_set;
+    return null_set;
+  }
 }
 
 TimingArcSet *
@@ -1442,16 +1532,22 @@ LibertyCell::addScaledCell(OperatingConditions *op_cond,
     port->addScaledPort(op_cond, scaled_port);
   }
 
-  LibertyCellTimingArcSetIterator set_iter1(this);
-  LibertyCellTimingArcSetIterator set_iter2(scaled_cell);
-  while (set_iter1.hasNext() && set_iter2.hasNext()) {
-    TimingArcSet *arc_set1 = set_iter1.next();
-    TimingArcSet *arc_set2 = set_iter2.next();
-    TimingArcSetArcIterator arc_iter1(arc_set1);
-    TimingArcSetArcIterator arc_iter2(arc_set2);
-    while (arc_iter1.hasNext() && arc_iter2.hasNext()) {
-      TimingArc *arc = arc_iter1.next();
-      TimingArc *scaled_arc = arc_iter2.next();
+  const TimingArcSetSeq &arc_sets1 = this->timingArcSets();
+  const TimingArcSetSeq &arc_sets2 = scaled_cell->timingArcSets();
+  for (auto set_itr1 = arc_sets1.begin(), set_itr2 = arc_sets2.begin();
+       set_itr1 != arc_sets1.end() && set_itr2 != arc_sets2.end();
+       set_itr1++, set_itr2++) {
+    TimingArcSet *arc_set1 = *set_itr1;
+    TimingArcSet *arc_set2 = *set_itr2;
+    const TimingArcSeq &arcs1 = arc_set1->arcs();
+    const TimingArcSeq &arcs2 = arc_set2->arcs();
+    auto arc_itr1 = arcs1.begin(), arc_itr2 = arcs2.begin();
+    for (;
+         arc_itr1 != arcs1.end() && arc_itr2 != arcs2.end();
+         arc_itr1++, arc_itr2++) {
+      TimingArc *arc = *arc_itr1;
+      const TimingArc *scaled_arc = *arc_itr2;
+
       if (TimingArc::equiv(arc, scaled_arc)) {
 	TimingModel *model = scaled_arc->model();
 	model->setIsScaled(true);
@@ -1487,12 +1583,37 @@ LibertyCell::setIsDisabledConstraint(bool is_disabled)
 }
 
 LibertyCell *
+LibertyCell::cornerCell(const Corner *corner,
+                        const MinMax *min_max)
+{
+  return cornerCell(corner->libertyIndex(min_max));
+}
+
+LibertyCell *
+LibertyCell::cornerCell(const DcalcAnalysisPt *dcalc_ap)
+{
+  return cornerCell(dcalc_ap->libertyIndex());
+}
+
+LibertyCell *
 LibertyCell::cornerCell(int ap_index)
 {
-  if (ap_index < static_cast<int>(corner_cells_.size()))
+  if (corner_cells_.empty())
+    return this;
+  else if (ap_index < static_cast<int>(corner_cells_.size()))
     return corner_cells_[ap_index];
   else
     return nullptr;
+}
+
+bool
+LibertyCell::checkCornerCell(const Corner *corner,
+                             const MinMax *min_max) const
+{
+  unsigned lib_index = corner->libertyIndex(min_max);
+  return corner_cells_.empty()
+    || (lib_index < corner_cells_.size()
+        && corner_cells_[lib_index]);
 }
 
 void
@@ -1547,27 +1668,13 @@ LibertyCell::addOcvDerate(OcvDerate *derate)
 
 ////////////////////////////////////////////////////////////////
 
-LibertyCellTimingArcSetIterator::LibertyCellTimingArcSetIterator(const LibertyCell *cell) :
-  TimingArcSetSeq::ConstIterator(&cell->timing_arc_sets_)
-{
-}
-
-LibertyCellTimingArcSetIterator::LibertyCellTimingArcSetIterator(const LibertyCell *cell,
-								 const LibertyPort *from,
-								 const LibertyPort *to):
-  TimingArcSetSeq::ConstIterator(cell->timingArcSets(from, to))
-{
-}
-  
-////////////////////////////////////////////////////////////////
-
 // Latch enable port/function for a latch D->Q timing arc set.
 class LatchEnable
 {
 public:
   LatchEnable(LibertyPort *data,
 	      LibertyPort *enable,
-	      RiseFall *enable_rf,
+	      RiseFall *enable_edge,
 	      FuncExpr *enable_func,
 	      LibertyPort *output,
 	      TimingArcSet *d_to_q,
@@ -1577,17 +1684,15 @@ public:
   LibertyPort *output() const { return output_; }
   LibertyPort *enable() const { return enable_; }
   FuncExpr *enableFunc() const { return enable_func_; }
-  RiseFall *enableTransition() const { return enable_rf_; }
+  RiseFall *enableEdge() const { return enable_edge_; }
   TimingArcSet *dToQ() const { return d_to_q_; }
   TimingArcSet *enToQ() const { return en_to_q_; }
   TimingArcSet *setupCheck() const { return setup_check_; }
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(LatchEnable);
-
   LibertyPort *data_;
   LibertyPort *enable_;
-  RiseFall *enable_rf_;
+  RiseFall *enable_edge_;
   FuncExpr *enable_func_;
   LibertyPort *output_;
   TimingArcSet *d_to_q_;
@@ -1597,7 +1702,7 @@ private:
 
 LatchEnable::LatchEnable(LibertyPort *data,
 			 LibertyPort *enable,
-			 RiseFall *enable_rf,
+			 RiseFall *enable_edge,
 			 FuncExpr *enable_func,
 			 LibertyPort *output,
 			 TimingArcSet *d_to_q,
@@ -1605,7 +1710,7 @@ LatchEnable::LatchEnable(LibertyPort *data,
 			 TimingArcSet *setup_check) :
   data_(data),
   enable_(enable),
-  enable_rf_(enable_rf),
+  enable_edge_(enable_edge),
   enable_func_(enable_func),
   output_(output),
   d_to_q_(d_to_q),
@@ -1627,26 +1732,20 @@ LibertyCell::makeLatchEnables(Report *report,
       if (en_to_q->role() == TimingRole::latchEnToQ()) {
 	LibertyPort *en = en_to_q->from();
 	LibertyPort *q = en_to_q->to();
-	LibertyCellTimingArcSetIterator to_iter(this, nullptr, q);
-	while (to_iter.hasNext()) {
-	  TimingArcSet *d_to_q = to_iter.next();
+        for (TimingArcSet *d_to_q : timingArcSets(nullptr, q)) {
 	  if (d_to_q->role() == TimingRole::latchDtoQ()) {
 	    LibertyPort *d = d_to_q->from();
-	    LibertyCellTimingArcSetIterator check_iter(this, en, d);
-	    while (check_iter.hasNext()) {
-	      TimingArcSet *setup_check = check_iter.next();
+            for (TimingArcSet *setup_check : timingArcSets(en, d)) {
 	      if (setup_check->role() == TimingRole::setup()) {
 		LatchEnable *latch_enable = makeLatchEnable(d, en, q, d_to_q,
 							    en_to_q,
 							    setup_check,
 							    debug);
-		TimingArcSetArcIterator check_arc_iter(setup_check);
-		if (check_arc_iter.hasNext()) {
-		  TimingArc *check_arc = check_arc_iter.next();
-		  RiseFall *en_rf = latch_enable->enableTransition();
-		  RiseFall *check_rf = check_arc->fromTrans()->asRiseFall();
-		  if (check_rf == en_rf) {
-		    report->warn(4, "cell %s/%s %s -> %s latch enable %s_edge timing arc is inconsistent with %s -> %s setup_%s check.",
+                for (TimingArc *check_arc : setup_check->arcs()) {
+		  RiseFall *en_rf = latch_enable->enableEdge();
+		  RiseFall *check_rf = check_arc->fromEdge()->asRiseFall();
+		  if (check_rf == en_rf)
+		    report->warn(4, "cell %s/%s %s -> %s latch enable %s_edge is inconsistent with %s -> %s setup_%s check.",
 				 library_->name(),
 				 name_,
 				 en->name(),
@@ -1655,7 +1754,6 @@ LibertyCell::makeLatchEnables(Report *report,
 				 en->name(),
 				 d->name(),
 				 check_rf==RiseFall::rise()?"rising":"falling");
-		  }
 		  FuncExpr *en_func = latch_enable->enableFunc();
 		  if (en_func) {
 		    TimingSense en_sense = en_func->portTimingSense(en);
@@ -1676,7 +1774,6 @@ LibertyCell::makeLatchEnables(Report *report,
 				   q->name(),
 				   en_rf == RiseFall::rise()?"rising":"falling");
 		  }
-		  break;
 		}
 	      }
 	    }
@@ -1732,30 +1829,23 @@ LibertyCell::inferLatchRoles(Debug *debug)
   if (hasInferedRegTimingArcs()) {
     // Hunt down potential latch D/EN/Q triples.
     LatchEnableSet latch_enables;
-    LibertyCellTimingArcSetIterator set_iter(this);
-    while (set_iter.hasNext()) {
-      TimingArcSet *en_to_q = set_iter.next();
+    for (TimingArcSet *en_to_q : timingArcSets()) {
       // Locate potential d->q arcs from reg clk->q arcs.
       if (en_to_q->role() == TimingRole::regClkToQ()) {
 	LibertyPort *en = en_to_q->from();
 	LibertyPort *q = en_to_q->to();
-	LibertyCellTimingArcSetIterator to_iter(this, nullptr, q);
-	while (to_iter.hasNext()) {
-	  TimingArcSet *d_to_q = to_iter.next();
+        for (TimingArcSet *d_to_q : timingArcSets(nullptr, q)) {
 	  // Look for combinational d->q arcs.
 	  TimingRole *d_to_q_role = d_to_q->role();
 	  if ((d_to_q_role == TimingRole::combinational()
-	       && ((d_to_q->arcCount() == 2
-		    && (d_to_q->sense() == TimingSense::positive_unate
-			|| d_to_q->sense() == TimingSense::negative_unate))
-		   || (d_to_q->arcCount() == 4)))
+	       && d_to_q->arcCount() == 2
+               && (d_to_q->sense() == TimingSense::positive_unate
+                   || d_to_q->sense() == TimingSense::negative_unate))
 	      // Previously identified as D->Q arc.
 	      || d_to_q_role == TimingRole::latchDtoQ()) {
 	    LibertyPort *d = d_to_q->from();
 	    // Check for setup check from en -> d.
-	    LibertyCellTimingArcSetIterator check_iter(this, en, d);
-	    while (check_iter.hasNext()) {
-	      TimingArcSet *setup_check = check_iter.next();
+            for (TimingArcSet *setup_check : timingArcSets(en, d)) {
 	      if (setup_check->role() == TimingRole::setup()) {
 		makeLatchEnable(d, en, q, d_to_q, en_to_q, setup_check, debug);
 		d_to_q->setRole(TimingRole::latchDtoQ());
@@ -1780,23 +1870,23 @@ LibertyCell::latchEnable(TimingArcSet *d_to_q_set,
 			 // Return values.
 			 LibertyPort *&enable_port,
 			 FuncExpr *&enable_func,
-			 RiseFall *&enable_rf) const
+			 RiseFall *&enable_edge) const
 {
   enable_port = nullptr;
   LatchEnable *latch_enable = latch_d_to_q_map_.findKey(d_to_q_set);
   if (latch_enable) {
     enable_port = latch_enable->enable();
     enable_func = latch_enable->enableFunc();
-    enable_rf = latch_enable->enableTransition();
+    enable_edge = latch_enable->enableEdge();
   }
 }
 
 RiseFall *
-LibertyCell::latchCheckEnableTrans(TimingArcSet *check_set)
+LibertyCell::latchCheckEnableEdge(TimingArcSet *check_set)
 {
   LatchEnable *latch_enable = latch_check_map_.findKey(check_set);
   if (latch_enable)
-    return latch_enable->enableTransition();
+    return latch_enable->enableEdge();
   else
     return nullptr;
 }
@@ -1849,12 +1939,14 @@ LibertyCellPortBitIterator::next()
 LibertyPort::LibertyPort(LibertyCell *cell,
 			 const char *name,
 			 bool is_bus,
-			 int from_index,
+			 BusDcl *bus_dcl,
+                         int from_index,
 			 int to_index,
 			 bool is_bundle,
 			 ConcretePortSeq *members) :
-  ConcretePort(cell, name, is_bus, from_index, to_index, is_bundle, members),
+  ConcretePort(name, is_bus, from_index, to_index, is_bundle, members, cell),
   liberty_cell_(cell),
+  bus_dcl_(bus_dcl),
   function_(nullptr),
   tristate_enable_(nullptr),
   scaled_ports_(nullptr),
@@ -1865,15 +1957,21 @@ LibertyPort::LibertyPort(LibertyCell *cell,
   pulse_clk_sense_(nullptr),
   related_ground_pin_(nullptr),
   related_power_pin_(nullptr),
+  receiver_model_(nullptr),
+  driver_waveform_{nullptr, nullptr},
   min_pulse_width_exists_(false),
   min_period_exists_(false),
   is_clk_(false),
   is_reg_clk_(false),
   is_check_clk_(false),
-  is_clk_gate_clk_pin_(false),
-  is_clk_gate_enable_pin_(false),
-  is_clk_gate_out_pin_(false),
-  is_pll_feedback_pin_(false),
+  is_clk_gate_clk_(false),
+  is_clk_gate_enable_(false),
+  is_clk_gate_out_(false),
+  is_pll_feedback_(false),
+  isolation_cell_data_(false),
+  isolation_cell_enable_(false),
+  level_shifter_data_(false),
+  is_switch_(false),
   is_disabled_constraint_(false)
 {
   liberty_port_ = this;
@@ -2016,15 +2114,11 @@ LibertyPort::driveResistance(const RiseFall *rf,
 {
   float max_drive = min_max->initValue();
   bool found_drive = false;
-  LibertyCellTimingArcSetIterator set_iter(liberty_cell_, nullptr, this);
-  while (set_iter.hasNext()) {
-    TimingArcSet *set = set_iter.next();
-    if (!set->role()->isTimingCheck()) {
-      TimingArcSetArcIterator arc_iter(set);
-      while (arc_iter.hasNext()) {
-	TimingArc *arc = arc_iter.next();
+  for (TimingArcSet *arc_set : liberty_cell_->timingArcSets(nullptr, this)) {
+    if (!arc_set->role()->isTimingCheck()) {
+      for (TimingArc *arc : arc_set->arcs()) {
 	if (rf == nullptr
-	    || arc->toTrans()->asRiseFall() == rf) {
+	    || arc->toEdge()->asRiseFall() == rf) {
           float drive = arc->driveResistance();
           if (drive > 0.0) {
             if (min_max->compare(drive, max_drive))
@@ -2054,15 +2148,11 @@ LibertyPort::intrinsicDelay(const RiseFall *rf,
 {
   ArcDelay max_delay = min_max->initValue();
   bool found_delay = false;
-  LibertyCellTimingArcSetIterator set_iter(liberty_cell_, nullptr, this);
-  while (set_iter.hasNext()) {
-    TimingArcSet *set = set_iter.next();
-    if (!set->role()->isTimingCheck()) {
-      TimingArcSetArcIterator arc_iter(set);
-      while (arc_iter.hasNext()) {
-	TimingArc *arc = arc_iter.next();
+  for (TimingArcSet *arc_set : liberty_cell_->timingArcSets(nullptr, this)) {
+    if (!arc_set->role()->isTimingCheck()) {
+      for (TimingArc *arc : arc_set->arcs()) {
 	if (rf == nullptr
-	    || arc->toTrans()->asRiseFall() == rf) {
+	    || arc->toEdge()->asRiseFall() == rf) {
           ArcDelay delay = arc->intrinsicDelay();
           if (delayGreater(delay, 0.0, sta)) {
 	    if (delayGreater(delay, max_delay, min_max, sta))
@@ -2265,15 +2355,16 @@ bool
 LibertyPort::less(const LibertyPort *port1,
 		  const LibertyPort *port2)
 {
+  if (port1 == nullptr && port2 != nullptr)
+    return true;
+  if (port1 != nullptr && port2 == nullptr)
+    return false;
   const char *name1 = port1->name();
   const char *name2 = port2->name();
   if (stringEq(name1, name2)) {
     PortDirection *dir1 = port1->direction();
     PortDirection *dir2 = port2->direction();
-    if (dir1 == dir2) {
-    }
-    else
-      return dir1->index() < dir2->index();
+    return dir1->index() < dir2->index();
   }
   return stringLess(name1, name2);
 }
@@ -2312,27 +2403,51 @@ LibertyPort::setIsCheckClk(bool is_clk)
 }
 
 void
-LibertyPort::setIsClockGateClockPin(bool is_clk_gate_clk)
+LibertyPort::setIsClockGateClock(bool is_clk_gate_clk)
 {
-  is_clk_gate_clk_pin_ = is_clk_gate_clk;
+  is_clk_gate_clk_ = is_clk_gate_clk;
 }
 
 void
-LibertyPort::setIsClockGateEnablePin(bool is_clk_gate_enable)
+LibertyPort::setIsClockGateEnable(bool is_clk_gate_enable)
 {
-  is_clk_gate_enable_pin_ = is_clk_gate_enable;
+  is_clk_gate_enable_ = is_clk_gate_enable;
 }
 
 void
-LibertyPort::setIsClockGateOutPin(bool is_clk_gate_out)
+LibertyPort::setIsClockGateOut(bool is_clk_gate_out)
 {
-  is_clk_gate_out_pin_ = is_clk_gate_out;
+  is_clk_gate_out_ = is_clk_gate_out;
 }
 
 void
-LibertyPort::setIsPllFeedbackPin(bool is_pll_feedback_pin)
+LibertyPort::setIsPllFeedback(bool is_pll_feedback)
 {
-  is_pll_feedback_pin_ = is_pll_feedback_pin;
+  is_pll_feedback_ = is_pll_feedback;
+}
+
+void
+LibertyPort::setIsolationCellData(bool isolation_cell_data)
+{
+  isolation_cell_data_ = isolation_cell_data;
+}
+
+void
+LibertyPort::setIsolationCellEnable(bool isolation_cell_enable)
+{
+  isolation_cell_enable_ = isolation_cell_enable;
+}
+
+void
+LibertyPort::setLevelShifterData(bool level_shifter_data)
+{
+  level_shifter_data_ = level_shifter_data;
+}
+
+void
+LibertyPort::setIsSwitch(bool is_switch)
+{
+  is_switch_ = is_switch;
 }
 
 void
@@ -2350,25 +2465,51 @@ LibertyPort::setIsDisabledConstraint(bool is_disabled)
 }
 
 LibertyPort *
+LibertyPort::cornerPort(const Corner *corner,
+                        const MinMax *min_max)
+{
+  return cornerPort(corner->libertyIndex(min_max));
+}
+
+const LibertyPort *
+LibertyPort::cornerPort(const Corner *corner,
+                        const MinMax *min_max) const
+{
+  return cornerPort(corner->libertyIndex(min_max));
+}
+
+LibertyPort *
+LibertyPort::cornerPort(const DcalcAnalysisPt *dcalc_ap)
+{
+  return cornerPort(dcalc_ap->libertyIndex());
+}
+
+const LibertyPort *
+LibertyPort::cornerPort(const DcalcAnalysisPt *dcalc_ap) const
+{
+  return cornerPort(dcalc_ap->libertyIndex());
+}
+
+LibertyPort *
 LibertyPort::cornerPort(int ap_index)
 {
-  if (ap_index < static_cast<int>(corner_ports_.size())) {
-    LibertyPort *corner_port = corner_ports_[ap_index];
-    if (corner_port)
-      return corner_port;
-  }
-  return this;
+  if (corner_ports_.empty())
+    return this;
+  else if (ap_index < static_cast<int>(corner_ports_.size()))
+    return corner_ports_[ap_index];
+  else
+    return nullptr;
 }
 
 const LibertyPort *
 LibertyPort::cornerPort(int ap_index) const
 {
-  if (ap_index < static_cast<int>(corner_ports_.size())) {
-    LibertyPort *corner_port = corner_ports_[ap_index];
-    if (corner_port)
-      return corner_port;
-  }
-  return this;
+  if (corner_ports_.empty())
+    return this;
+  else if (ap_index < static_cast<int>(corner_ports_.size()))
+    return corner_ports_[ap_index];
+  else
+    return nullptr;
 }
 
 void
@@ -2392,16 +2533,78 @@ LibertyPort::setRelatedPowerPin(const char *related_power_pin)
   related_power_pin_ = stringCopy(related_power_pin);
 }
 
-////////////////////////////////////////////////////////////////
+void
+LibertyPort::setReceiverModel(ReceiverModelPtr receiver_model)
+{
+  receiver_model_ = receiver_model;
+}
+
+string
+portLibertyToSta(const char *port_name)
+{
+  constexpr char bus_brkt_left = '[';
+  constexpr char bus_brkt_right = ']';
+  size_t name_length = strlen(port_name);
+  string sta_name;
+  for (size_t i = 0; i < name_length; i++) {
+    char ch = port_name[i];
+    if (ch == bus_brkt_left
+        || ch == bus_brkt_right)
+      sta_name += '\\';
+    sta_name += ch;
+  }
+  return sta_name;
+}
+
+DriverWaveform *
+LibertyPort::driverWaveform(const RiseFall *rf) const
+{
+  return driver_waveform_[rf->index()];
+}
 
 void
-sortLibertyPortSet(LibertyPortSet *set,
-		   LibertyPortSeq &ports)
+LibertyPort::setDriverWaveform(DriverWaveform *driver_waveform,
+                               const RiseFall *rf)
 {
-  LibertyPortSet::Iterator port_iter(set);
-  while (port_iter.hasNext())
-    ports.push_back(port_iter.next());
+  driver_waveform_[rf->index()] = driver_waveform;
+}
+
+RiseFallMinMax
+LibertyPort::clockTreePathDelays()
+{
+  RiseFallMinMax delays;
+  const TimingArcSetSeq &arc_sets = liberty_cell_->timingArcSets(nullptr, this);
+  for (TimingArcSet *arc_set : arc_sets) {
+    TimingRole *role = arc_set->role();
+    if (role == TimingRole::clockTreePathMin()
+        || role == TimingRole::clockTreePathMax()) {
+      for (TimingArc *arc : arc_set->arcs()) {
+        TimingModel *model = arc->model();
+        GateTimingModel *gate_model = dynamic_cast<GateTimingModel*>(model);
+        ArcDelay delay;
+        Slew slew;
+        gate_model->gateDelay(nullptr, 0.0, 0.0, 0.0, false, delay, slew);
+        const RiseFall *rf = arc->toEdge()->asRiseFall();
+        const MinMax *min_max = (role == TimingRole::clockTreePathMin())
+          ? MinMax::min()
+          : MinMax::max();
+        delays.setValue(rf, min_max, delayAsFloat(delay));
+      }
+    }
+  }
+  return delays;
+}
+
+////////////////////////////////////////////////////////////////
+
+LibertyPortSeq
+sortByName(const LibertyPortSet *set)
+{
+  LibertyPortSeq ports;
+  for (LibertyPort *port : *set)
+    ports.push_back(port);
   sort(ports, LibertyPortNameLess());
+  return ports;
 }
 
 bool
@@ -2412,21 +2615,14 @@ LibertyPortNameLess::operator()(const LibertyPort *port1,
 }
 
 bool
-LibertyPortPairLess::operator()(const LibertyPortPair *pair1,
-				const LibertyPortPair *pair2) const
-{
-  return pair1->first < pair2->first
-    || (pair1->first == pair2->first
-	&& pair1->second < pair2->second);
-}
-
-bool
 LibertyPortPairLess::operator()(const LibertyPortPair &pair1,
 				const LibertyPortPair &pair2) const
 {
-  return pair1.first < pair2.first
-    || (pair1.first == pair2.first
-	&& pair1.second < pair2.second);
+  ObjectId id1 = pair1.first ? pair1.first->id() : 0;
+  ObjectId id2 = pair2.first ? pair2.first->id() : 0;
+  return id1 < id2
+    || (id1 == id2
+	&& pair1.second->id() < pair2.second->id());
 }
 
 ////////////////////////////////////////////////////////////////
@@ -2535,9 +2731,9 @@ TableTemplate::TableTemplate(const char *name) :
 }
 
 TableTemplate::TableTemplate(const char *name,
-			     TableAxis *axis1,
-			     TableAxis *axis2,
-			     TableAxis *axis3) :
+                             TableAxisPtr axis1,
+                             TableAxisPtr axis2,
+                             TableAxisPtr axis3) :
   name_(stringCopy(name)),
   axis1_(axis1),
   axis2_(axis2),
@@ -2548,9 +2744,6 @@ TableTemplate::TableTemplate(const char *name,
 TableTemplate::~TableTemplate()
 {
   stringDelete(name_);
-  delete axis1_;
-  delete axis2_;
-  delete axis3_;
 }
 
 void
@@ -2561,19 +2754,19 @@ TableTemplate::setName(const char *name)
 }
 
 void
-TableTemplate::setAxis1(TableAxis *axis)
+TableTemplate::setAxis1(TableAxisPtr axis)
 {
   axis1_ = axis;
 }
 
 void
-TableTemplate::setAxis2(TableAxis *axis)
+TableTemplate::setAxis2(TableAxisPtr axis)
 {
   axis2_ = axis;
 }
 
 void
-TableTemplate::setAxis3(TableAxis *axis)
+TableTemplate::setAxis3(TableAxisPtr axis)
 {
   axis3_ = axis;
 }
@@ -2720,8 +2913,8 @@ ScaleFactors::ScaleFactors(const char *name) :
 {
   for (int type = 0; type < scale_factor_type_count; type++) {
     for (int pvt = 0; pvt < scale_factor_pvt_count; pvt++) {
-      for (auto tr_index : RiseFall::rangeIndex()) {
-	scales_[type][pvt][tr_index] = 0.0;
+      for (auto rf_index : RiseFall::rangeIndex()) {
+	scales_[type][pvt][rf_index] = 0.0;
       }
     }
   }
@@ -2760,9 +2953,9 @@ ScaleFactors::scale(ScaleFactorType type,
 float
 ScaleFactors::scale(ScaleFactorType type,
 		    ScaleFactorPvt pvt,
-		    int tr_index)
+		    int rf_index)
 {
-  return scales_[int(type)][int(pvt)][tr_index];
+  return scales_[int(type)][int(pvt)][rf_index];
 }
 
 float
@@ -2859,9 +3052,9 @@ OcvDerate::OcvDerate(const char *name) :
   name_(name)
 {
   for (auto el_index : EarlyLate::rangeIndex()) {
-    for (auto tr_index : RiseFall::rangeIndex()) {
-      derate_[tr_index][el_index][int(PathType::clk)] = nullptr;
-      derate_[tr_index][el_index][int(PathType::data)] = nullptr;
+    for (auto rf_index : RiseFall::rangeIndex()) {
+      derate_[rf_index][el_index][int(PathType::clk)] = nullptr;
+      derate_[rf_index][el_index][int(PathType::data)] = nullptr;
     }
   }
 }
@@ -2869,40 +3062,21 @@ OcvDerate::OcvDerate(const char *name) :
 OcvDerate::~OcvDerate()
 {
   stringDelete(name_);
-  // Derating table models can be shared in multiple places in derate_;
-  // Collect them in a set to avoid duplicate deletes.
-  Set<Table*> models;
-  for (auto el_index : EarlyLate::rangeIndex()) {
-    for (auto tr_index : RiseFall::rangeIndex()) {
-      Table *derate;
-      derate = derate_[tr_index][el_index][int(PathType::clk)];
-      if (derate)
-	models.insert(derate);
-      derate = derate_[tr_index][el_index][int(PathType::data)];
-      if (derate)
-	models.insert(derate);
-    }
-  }
-  Set<Table*>::Iterator model_iter(models);
-  while (model_iter.hasNext()) {
-    Table *model = model_iter.next();
-    delete model;
-  }
 }
 
-Table *
+const Table *
 OcvDerate::derateTable(const RiseFall *rf,
 		       const EarlyLate *early_late,
 		       PathType path_type)
 {
-  return derate_[rf->index()][early_late->index()][int(path_type)];
+  return derate_[rf->index()][early_late->index()][int(path_type)].get();
 }
 
 void
 OcvDerate::setDerateTable(const RiseFall *rf,
 			  const EarlyLate *early_late,
 			  const PathType path_type,
-			  Table *derate)
+			  TablePtr derate)
 {
   derate_[rf->index()][early_late->index()][int(path_type)] = derate;
 }

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
 #include "CheckMinPulseWidths.hh"
 
 #include "Debug.hh"
-#include "DisallowCopyAssign.hh"
 #include "TimingRole.hh"
 #include "Liberty.hh"
 #include "Network.hh"
@@ -54,9 +53,6 @@ public:
   virtual ~MinPulseWidthCheckVisitor() {}
   virtual void visit(MinPulseWidthCheck &check,
 		     const StaState *sta) = 0;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(MinPulseWidthCheckVisitor);
 };
 
 CheckMinPulseWidths::CheckMinPulseWidths(StaState *sta) :
@@ -86,8 +82,6 @@ public:
 		     const StaState *sta);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(MinPulseWidthChecksVisitor);
-
   const Corner *corner_;
   MinPulseWidthCheckSeq &checks_;
 };
@@ -130,7 +124,7 @@ CheckMinPulseWidths::check(PinSeq *pins,
   MinPulseWidthChecksVisitor visitor(corner, checks_);
   PinSeq::Iterator pin_iter(pins);
   while (pin_iter.hasNext()) {
-    Pin *pin = pin_iter.next();
+    const Pin *pin = pin_iter.next();
     Vertex *vertex = graph->pinLoadVertex(pin);
     visitMinPulseWidthChecks(vertex, &visitor);
   }
@@ -149,8 +143,6 @@ public:
 		     const StaState *sta);
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(MinPulseWidthViolatorsVisitor);
-
   const Corner *corner_;
   MinPulseWidthCheckSeq &checks_;
 };
@@ -196,8 +188,6 @@ public:
   MinPulseWidthCheck *minSlackCheck();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(MinPulseWidthSlackVisitor);
-
   const Corner *corner_;
   MinPulseWidthCheck *min_slack_check_;
 };
@@ -391,13 +381,13 @@ MinPulseWidthCheck::closeDelay(const StaState *sta) const
   return closeArrival(sta) - closeClkEdge(sta)->time();
 }
 
-ClockEdge *
+const ClockEdge *
 MinPulseWidthCheck::openClkEdge(const StaState *sta) const
 {
   return open_path_.clkEdge(sta->search());
 }
 
-ClockEdge *
+const ClockEdge *
 MinPulseWidthCheck::closeClkEdge(const StaState *sta) const
 {
   Tag *open_tag = open_path_.tag(sta);
@@ -408,8 +398,8 @@ MinPulseWidthCheck::closeClkEdge(const StaState *sta) const
 float
 MinPulseWidthCheck::closeOffset(const StaState *sta) const
 {
-  ClockEdge *open_clk_edge = openClkEdge(sta);
-  ClockEdge *close_clk_edge = closeClkEdge(sta);
+  const ClockEdge *open_clk_edge = openClkEdge(sta);
+  const ClockEdge *close_clk_edge = closeClkEdge(sta);
   if (open_clk_edge->time() > close_clk_edge->time())
     return open_clk_edge->clock()->period();
   else
@@ -445,7 +435,7 @@ minPulseWidth(const Path *path,
 	      bool &exists)
 {
   Pin *pin = path->pin(sta);
-  Clock *clk = path->clock(sta);
+  const Clock *clk = path->clock(sta);
   const RiseFall *rf = path->transition(sta);
   Sdc *sdc = sta->sdc();
   // set_min_pulse_width command.

@@ -33,7 +33,7 @@ Module::portdir(std::string const & port) const {
 void
 Module::connectPin(std::string const & instname, VerilogNetPortRefScalarNet *pin, Module* submod) {
   if (!pin->netName()) return;
-  assert(pin->name());
+  assert(pin->name().size());
   std::string subport = pin->name();
   bool isInput = submod->portdir(subport);
   std::string instport = instname + '/' + subport;
@@ -71,7 +71,7 @@ Module::connectPin(std::string const & instname, VerilogNetPortRefScalarNet *pin
 void
 Module::connectBus(std::string const & instname, VerilogNetPortRef *bus, Module* submod, Cell *cell) {
   //  auto &pin_it = ml->reader
-  assert(bus->name());
+  assert(bus->name().size());
   std::string subport = bus->name();
   bool isInput = submod->portdir(subport);
 
@@ -157,22 +157,22 @@ Module::processLibertyInstAsModule(VerilogModuleInst* s) {
       VerilogNet *pin = (*pins)[i];
       if (pin->isNamedPortRefScalarNet()) {
         VerilogNetPortRefScalarNet *net = (VerilogNetPortRefScalarNet *)pin;
-        const char *pinName = net->name();
-        assert(pinName);
+        std::string pinName = net->name();
+        assert(pinName.size());
         const char *netName = net->netName();
         if (!netName) continue;
         assert(netName);
         std::string instport = instname + "/" + pinName;
         addNetSymbol(instport, false);
         addNetSymbol(netName, false);
-        if (libertycell->findPort(pinName)->direction()->isInput()) addConnection(netName, instport);
+        if (libertycell->findPort(pinName.c_str())->direction()->isInput()) addConnection(netName, instport);
         else                                                        addConnection(instport, netName);
         continue;
       }
       if (pin->isNamedPortRef()) {
         VerilogNetPortRef* net = (VerilogNetPortRef*)pin;
         VerilogNetNameIterator *netIt = net->nameIterator(module, ml->reader);
-        assert(net->name());
+        assert(net->name().size());
         std::string subport = net->name();
         bool isInput = libertycell->findPort(subport.c_str())->direction()->isInput();
         Port *port = ml->network->findPort(cell, subport.c_str());
@@ -185,7 +185,7 @@ Module::processLibertyInstAsModule(VerilogModuleInst* s) {
           continue;
         }
         PortMemberIterator *portIt = ml->network->memberIterator(port);
-        while(netIt->hasNext()){
+        while(portIt->hasNext() && netIt->hasNext()){
           std::string netname  = netIt->next();
           const char* pname = ml->network->name(portIt->next());
           assert(pname);
@@ -270,10 +270,10 @@ void
 Module::processAssign(VerilogAssign* s) {
   VerilogNet* l = s->lhs();
   VerilogNet* r = s->rhs();
-  const char* lnname = l->name();
-  const char* rnname = r->name();
-  assert(lnname);
-  assert(rnname);
+  std::string lnname = l->name();
+  std::string rnname = r->name();
+  assert(lnname.size());
+  assert(rnname.size());
   std::string lnetname = lnname;
   std::string rnetname = rnname;
   VerilogDcl* ldcl = module->declaration(lnetname.c_str());
@@ -320,7 +320,7 @@ Module::processStmt(VerilogStmt* s) {
 void
 Module::processModule() {
   for (auto &s : *module->ports()) {
-    VerilogDcl* dcl = module->declaration(s->name());
+    VerilogDcl* dcl = module->declaration(s->name().c_str());
     if (!dcl->isBus()) addNetSymbol(s->name(), true); 
     else {
       Range r = getRange((VerilogDclBus*)dcl);

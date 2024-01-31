@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -90,7 +90,7 @@ define_cmd_args "find_timing_paths" \
      [-to to_list|-rise_to to_list|-fall_to to_list]\
      [-path_delay min|min_rise|min_fall|max|max_rise|max_fall|min_max]\
      [-unconstrained]
-     [-corner corner_name]\
+     [-corner corner]\
      [-group_count path_count] \
      [-endpoint_count path_count]\
      [-unique_paths_to_endpoint]\
@@ -231,13 +231,10 @@ proc report_delays_wrt_clks { pin_arg what } {
     if { $vertex != "NULL" } {
       report_delays_wrt_clk $vertex $what "NULL" "rise"
       report_delays_wrt_clk $vertex $what [default_arrival_clock] "rise"
-      set clk_iter [clock_iterator]
-      while {[$clk_iter has_next]} {
-	set clk [$clk_iter next]
+      foreach clk [all_clocks] {
 	report_delays_wrt_clk $vertex $what $clk "rise"
 	report_delays_wrt_clk $vertex $what $clk "fall"
       }
-      $clk_iter finish
     }
   }
 }
@@ -252,7 +249,7 @@ proc report_delays_wrt_clk { vertex what clk clk_rf } {
     set rise_fmt [format_delays $rise]
     set fall_fmt [format_delays $fall]
     if {$clk != "NULL"} {
-      set clk_str " ([get_name $clk] [rise_fall_short_name $clk_rf])"
+      set clk_str " ([get_name $clk] [rf_short_name $clk_rf])"
     } else {
       set clk_str ""
     }
@@ -266,13 +263,10 @@ proc report_wrt_clks { pin_arg what } {
     if { $vertex != "NULL" } {
       report_wrt_clk $vertex $what "NULL" "rise"
       report_wrt_clk $vertex $what [default_arrival_clock] "rise"
-      set clk_iter [clock_iterator]
-      while {[$clk_iter has_next]} {
-	set clk [$clk_iter next]
+      foreach clk [all_clocks] {
 	report_wrt_clk $vertex $what $clk "rise"
 	report_wrt_clk $vertex $what $clk "fall"
       }
-      $clk_iter finish
     }
   }
 }
@@ -287,21 +281,11 @@ proc report_wrt_clk { vertex what clk clk_rf } {
     set rise_fmt [format_times $rise $sta_report_default_digits]
     set fall_fmt [format_times $fall $sta_report_default_digits]
     if {$clk != "NULL"} {
-      set clk_str " ([get_name $clk] [rise_fall_short_name $clk_rf])"
+      set clk_str " ([get_name $clk] [rf_short_name $clk_rf])"
     } else {
       set clk_str ""
     }
     report_line "$clk_str r $rise_fmt f $fall_fmt"
-  }
-}
-
-proc rise_fall_short_name { tr } {
-  if { $tr eq "rise" } {
-    return [rise_short_name]
-  } elseif { $tr eq "fall" } {
-    return [fall_short_name]
-  } else {
-    error "unknown transition name $tr"
   }
 }
 
@@ -328,7 +312,7 @@ proc delays_are_inf { delays } {
 
 define_cmd_args "report_clock_skew" {[-setup|-hold]\
 					   [-clock clocks]\
-					   [-corner corner_name]]\
+					   [-corner corner]]\
 					   [-digits digits]}
 
 proc_redirect report_clock_skew {
@@ -373,7 +357,7 @@ define_cmd_args "report_checks" \
      [-to to_list|-rise_to to_list|-fall_to to_list]\
      [-unconstrained]\
      [-path_delay min|min_rise|min_fall|max|max_rise|max_fall|min_max]\
-     [-corner corner_name]\
+     [-corner corner]\
      [-group_count path_count] \
      [-endpoint_count path_count]\
      [-unique_paths_to_endpoint]\
@@ -403,7 +387,7 @@ proc_redirect report_checks {
 
 define_cmd_args "report_check_types" \
   {[-violators] [-verbose]\
-     [-corner corner_name]\
+     [-corner corner]\
      [-format slack_only|end]\
      [-max_delay] [-min_delay]\
      [-recovery] [-removal]\
@@ -447,7 +431,7 @@ proc_redirect report_check_types {
 
   set net "NULL"
   if { [info exists keys(-net)] } {
-    set net [get_net_warn "-net" $keys(-net)]
+    set net [get_net_arg "-net" $keys(-net)]
   }
 
   if { $args == {} } {
@@ -679,7 +663,7 @@ proc report_capacitance_limits { net corner min_max violators verbose nosplit } 
 ################################################################
 
 define_cmd_args "report_dcalc" \
-  {[-from from_pin] [-to to_pin] [-corner corner_name] [-min] [-max] [-digits digits]}
+  {[-from from_pin] [-to to_pin] [-corner corner] [-min] [-max] [-digits digits]}
 
 proc_redirect report_dcalc {
   report_dcalc_cmd "report_dcalc" $args "-digits"
@@ -763,7 +747,7 @@ proc_redirect report_worst_slack {
 ################################################################
 
 define_cmd_args "report_pulse_width_checks" \
-  {[-verbose] [-corner corner_name] [-digits digits] [-no_line_splits] [pins]\
+  {[-verbose] [-corner corner] [-digits digits] [-no_line_splits] [pins]\
      [> filename] [>> filename]}
 
 proc_redirect report_pulse_width_checks {
@@ -864,7 +848,7 @@ proc parse_rise_fall_arg { arg } {
   if { $arg eq "r" || $arg eq "^" || $arg eq "rise" } {
     return "rise"
   } elseif { $arg eq "f" || $arg eq "v" || $arg eq "fall" } {
-    retur "fall"
+    return "fall"
   } else {
     error "unknown rise/fall transition name."
   }
@@ -926,17 +910,20 @@ proc parse_report_path_options { cmd args_var default_format
     set report_input_pin [expr [lsearch $fields "input*"] != -1]
     set report_cap [expr [lsearch $fields "cap*"] != -1]
     set report_net [expr [lsearch $fields "net*"] != -1]
-    # transition_time - compatibility 06/24/2019
-    set report_slew [expr [lsearch $fields "slew*"] != -1 \
-		       || [lsearch $fields "trans*"] != -1]
+    set report_slew [expr [lsearch $fields "slew*"] != -1]
+    set report_fanout [expr [lsearch $fields "fanout*"] != -1]
+    if { [expr [lsearch $fields "trans*"] != -1] } {
+      sta_warn 1640 "The transition_time field is deprecated. Use slew instead."
+    }
   } else {
     set report_input_pin 0
     set report_cap 0
     set report_net 0
     set report_slew 0
+    set report_fanout 0
   }
   set_report_path_fields $report_input_pin $report_net \
-    $report_cap $report_slew
+    $report_cap $report_slew $report_fanout
 
   set_report_path_no_split [info exists path_options(-no_line_splits)]
 }
@@ -1043,6 +1030,34 @@ proc worst_clock_skew { args } {
 }
 
 ################################################################
+
+define_cmd_args "write_timing_model" {[-corner corner] \
+                                        [-library_name lib_name]\
+                                        [-cell_name cell_name]\
+                                        filename}
+
+proc write_timing_model { args } {
+  parse_key_args "write_timing_model" args \
+    keys {-library_name -cell_name -corner} flags {}
+  check_argc_eq1 "write_timing_model" $args
+
+  set filename [file nativename [lindex $args 0]]
+  if { [info exists keys(-cell_name)] } {
+    set cell_name $keys(-cell_name)
+  } else {
+    set cell_name [get_name [[top_instance] cell]]
+  }
+  if { [info exists keys(-library_name)] } {
+    set lib_name $keys(-library_name)
+  } else {
+    set lib_name $cell_name
+  }
+  set corner [parse_corner keys]
+  write_timing_model_cmd $lib_name $cell_name $filename $corner
+    
+}
+
+################################################################
 #
 # Helper functions
 #
@@ -1068,23 +1083,6 @@ proc report_path_ends { path_ends } {
     set prev_end $path_end
   }
   report_path_end_footer
-}
-
-proc define_report_path_fields {} {
-  variable report_path_field_width_extra
-
-  set_rise_fall_short_names "^" "v"
-  set_report_path_field_order { fanout capacitance slew \
-				 incr total edge case description }
-  set_report_path_field_properties "description" "Description" 36 1
-  set width $report_path_field_width_extra
-  set_report_path_field_properties "total" "Time" $width 0
-  set_report_path_field_properties "incr" "Delay" $width 0
-  set_report_path_field_properties "capacitance" "Cap" $width 0
-  set_report_path_field_properties "slew" "Slew" $width 0
-  set_report_path_field_properties "fanout" "Fanout" 6 0
-  set_report_path_field_properties "edge" " " 1 0
-  set_report_path_field_properties "case" " " 11 0
 }
 
 ################################################################
@@ -1113,6 +1111,97 @@ proc report_clock_min_period { args } {
       set fmax [expr 1.0e-6 / $min_period]
     }
     puts "[get_name $clk] period_min = [sta::format_time $min_period 2] fmax = [format %.2f $fmax]"
+  }
+}
+
+################################################################
+
+define_cmd_args "set_disable_inferred_clock_gating" { objects }
+
+proc set_disable_inferred_clock_gating { objects } {
+  set_disable_inferred_clock_gating_cmd $objects
+}
+
+proc set_disable_inferred_clock_gating_cmd { objects } {
+  parse_inst_port_pin_arg $objects insts pins
+  foreach inst $insts {
+    disable_clock_gating_check_inst $inst
+  }
+  foreach pin $pins {
+    disable_clock_gating_check_pin $pin
+  }
+}
+
+################################################################
+
+define_cmd_args "unset_disable_inferred_clock_gating" { objects }
+
+proc unset_disable_inferred_clock_gating { objects } {
+  unset_disable_inferred_clock_gating_cmd $objects
+}
+
+proc unset_disable_inferred_clock_gating_cmd { objects } {
+  parse_inst_port_pin_arg $objects insts pins
+  foreach inst $insts {
+    unset_disable_clock_gating_check_inst $inst
+  }
+  foreach pin $pins {
+    unset_disable_clock_gating_check_pin $pin
+  }
+}
+
+################################################################
+
+# max slew slack / limit
+proc max_slew_check_slack_limit {} {
+  return [expr "[sta::max_slew_check_slack] / [sta::max_slew_check_limit]"]
+}
+
+# max cap slack / limit
+proc max_capacitance_check_slack_limit {} {
+  return [expr [sta::max_capacitance_check_slack] / [sta::max_capacitance_check_limit]]
+}
+
+# max fanout slack / limit
+proc max_fanout_check_slack_limit {} {
+  return [expr [sta::max_fanout_check_slack] / [sta::max_fanout_check_limit]]
+}
+
+################################################################
+
+proc rf_short_name { rf } {
+  if { [rf_is_rise $rf] } {
+    return [rise_short_name]
+  } elseif { [rf_is_fall $rf] } {
+    return [fall_short_name]
+  } else {
+    error "unknown transition name $rf"
+  }
+}
+
+proc opposite_rf { rf } {
+  if { [rf_is_rise $rf] } {
+    return "fall"
+  } elseif { [rf_is_fall $rf] } {
+    return "rise"
+  } else {
+    error "opposite_rf unknown transition $rf"
+  }
+}
+
+proc rf_is_rise { rf } {
+  if { $rf == "rise" || $rf == "^" || $rf == "r"} {
+    return 1
+  } else {
+    return 0
+  }
+}
+
+proc rf_is_fall { rf } {
+  if { $rf == "fall" || $rf == "v" || $rf == "f"} {
+    return 1
+  } else {
+    return 0
   }
 }
 

@@ -48,9 +48,32 @@ netlist data structures without duplicating them.
 * Query based incremental update of delays, arrival and required times
 * Simulator to propagate constants from constraints and netlist tie high/low
 
-See doc/OpenSTA.pdf for command documentiaton.
-See doc/StaApi.txt for timing engine API documentiaton.
+See doc/OpenSTA.pdf for command documentation.
+See doc/StaApi.txt for timing engine API documentation.
 See doc/ChangeLog.txt for changes to commands.
+
+OpenSTA is dual licensed. It is released under GPL v3 as OpenSTA and
+is also licensed for commerical applications by Parallax Software without
+the GPL's requirements.
+
+OpenSTA is open source, meaning the sources are published and can be
+compiled locally.  Derivative works are supported as long as they
+adhere to the GPL license requirements.  However, OpenSTA is not
+supported by a public community of developers as many other open
+source projects are. The copyright and develpment are exclusive to
+Parallax Software. OpenSTA does not solicit or accept external code
+contributions.
+
+Removing copyright and license notices from OpenSTA sources (or any
+other open source project for that matter) is illegal. This should be
+obvious, but the author of OpenSTA has discovered two different cases
+where the copyright and license were removed from source files that
+were copied.
+
+The official git repository is located at
+https://github.com/parallaxsw/OpenSTA.git. Any forks from this code
+base have not passed extensive regression testing which is not
+publicly available.
 
 ## Build
 
@@ -63,14 +86,14 @@ work, but these are the versions used for development.
 
 ```
          from   Ubuntu   Xcode
-                18.04.1  11.3
-cmake    3.10.2 3.10.2   3.16.2
-clang    9.1.0           11.0.0
-gcc      3.3.2   7.3.0   
+                22.04.2  11.3
+cmake    3.10.2 3.24.2   3.16.2
+clang    9.1.0           14.0.3
+gcc      3.3.2   11.3.0  
 tcl      8.4     8.6     8.6.6
-swig     1.3.28  3.0.12  4.0.1
-bison    1.35    3.0.4   3.5
-flex     2.5.4   2.6.4   2.5.35
+swig     1.3.28  4.1.0   4.0.1
+bison    1.35    3.0.2   3.8.2
+flex     2.5.4   2.6.4   2.6.4
 ```
 
 Note that flex versions before 2.6.4 contain 'register' declarations that
@@ -79,9 +102,23 @@ are illegal in c++17.
 These packages are **optional**:
 
 ```
-libz     1.1.4   1.2.5     1.2.8
-cudd             2.4.1     3.0.0
+tclreadline                   2.3.8
+libz        1.1.4   1.2.5     1.2.8
+cudd                2.4.1     3.0.0
 ```
+
+The [TCL readline library](https://tclreadline.sourceforge.net/tclreadline.html)
+links the GNU readline library to the TCL interpreter for command line editing 
+On OSX, Homebrew does not support tclreadline, but the macports system does
+(see https://www.macports.org). To enable TCL readline support use the following
+Cmake option:
+
+```
+cmake .. -DUSE_TCL_READLINE=ON
+```
+
+The Zlib library is an optional.  If CMake finds libz, OpenSTA can
+read Verilog, SDF, SPF, and SPEF files compressed with gzip.
 
 CUDD is a binary decision diageram (BDD) package that is used to
 improve conditional timing arc handling. OpenSTA does not require it
@@ -106,11 +143,8 @@ make
 make install
 
 cd <opensta>/build
-cmake .. -DUSE_CUDD -DCUDD_DIR=$HOME/cudd
+cmake .. -DUSE_CUDD=ON -DCUDD_DIR=$HOME/cudd
 ```
-
-The Zlib library is an optional.  If CMake finds libz, OpenSTA can
-read Verilog, SDF, SPF, and SPEF files compressed with gzip.
 
 ### Installing with CMake
 
@@ -186,21 +220,10 @@ case directory.
 
 * William Scott authored the arnoldi delay calculator at Blaze, Inc which was subsequently licensed to Nefelus, Inc that has graciously contributed it to OpenSTA.
 
-## Contributions
-
-External code contributions are not supported.
-
-https://en.wikipedia.org/wiki/Contributor_License_Agreement
-https://opensource.google/docs/cla/
-
 ## License
 
-OpenSTA is dual licensed. It is released under GPL v3 as OpenSTA and
-is also licensed for commerical applications by Parallax Software without
-the GPL's requirements.
-
 OpenSTA, Static Timing Analyzer
-Copyright (c) 2022, Parallax Software, Inc.
+Copyright (c) 2023, Parallax Software, Inc.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -214,4 +237,3 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
-

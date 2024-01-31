@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
 
 #include <queue>
 
-#include "DisallowCopyAssign.hh"
 #include "Iterator.hh"
 #include "Vector.hh"
 #include "StaState.hh"
@@ -65,7 +64,6 @@ public:
   virtual PathEnd *next();
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(PathEnum);
   void makeDiversions(PathEnd *path_end,
 		      Path *before);
   void makeDiversion(PathEnd *div_end,

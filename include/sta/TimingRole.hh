@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "MinMax.hh"
 #include "Map.hh"
 #include "StringUtil.hh"
@@ -60,6 +59,8 @@ public:
   static TimingRole *dataCheckHold() { return data_check_hold_; }
   static TimingRole *nonSeqSetup() { return non_seq_setup_; }
   static TimingRole *nonSeqHold() { return non_seq_hold_; }
+  static TimingRole *clockTreePathMin() { return clock_tree_path_min_; }
+  static TimingRole *clockTreePathMax() { return clock_tree_path_max_; }
   const char *asString() const { return name_; }
   int index() const { return index_; }
   bool isWire() const;
@@ -90,7 +91,6 @@ private:
 	     // generic_type = nullptr means type is the same as this.
 	     TimingRole *generic_role,
 	     int index);
-  DISALLOW_COPY_AND_ASSIGN(TimingRole);
 
   const char *name_;
   bool is_timing_check_;
@@ -127,6 +127,8 @@ private:
   static TimingRole *data_check_hold_;
   static TimingRole *non_seq_setup_;
   static TimingRole *non_seq_hold_;
+  static TimingRole *clock_tree_path_min_;
+  static TimingRole *clock_tree_path_max_;
   static TimingRoleMap timing_roles_;
 
   friend class TimingRoleLess;

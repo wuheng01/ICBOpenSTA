@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -31,8 +31,8 @@ using std::max;
 
 typedef Map<ParasiticNode*, double> ParasiticNodeValueMap;
 typedef Map<ParasiticDevice*, double> ParasiticDeviceValueMap;
-typedef Set<ParasiticNode*> ParasiticNodeSet;
 typedef Set<ParasiticDevice*> ParasiticDeviceSet;
+typedef Set<ParasiticNode*> ParasiticNodeSet;
 
 class ReduceToPi : public StaState
 {
@@ -226,7 +226,7 @@ ReduceToPi::pinCapacitance(ParasiticNode *node)
       }
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = sdc_->portExtCap(port, rf_, cnst_min_max_);
+      pin_cap = sdc_->portExtCap(port, rf_, corner_, cnst_min_max_);
   }
   return pin_cap;
 }
@@ -280,7 +280,7 @@ class ReduceToPiElmore : public ReduceToPi
 {
 public:
   ReduceToPiElmore(StaState *sta);
-  void makePiElmore(Parasitic *parasitic_network,
+  void makePiElmore(const Parasitic *parasitic_network,
 		    const Pin *drvr_pin,
 		    ParasiticNode *drvr_node,
 		    float coupling_cap_factor,
@@ -298,7 +298,7 @@ public:
 };
 
 void
-reduceToPiElmore(Parasitic *parasitic_network,
+reduceToPiElmore(const Parasitic *parasitic_network,
 		 const Pin *drvr_pin,
 		 float coupling_cap_factor,
 		 const OperatingConditions *op_cond,
@@ -314,13 +314,15 @@ reduceToPiElmore(Parasitic *parasitic_network,
     debugPrint(sta->debug(), "parasitic_reduce", 1, "Reduce driver %s",
                sta->network()->pathName(drvr_pin));
     ReduceToPiElmore reducer(sta);
-    reducer.makePiElmore(parasitic_network, drvr_pin, drvr_node,
-			 coupling_cap_factor, RiseFall::rise(),
-			 op_cond, corner, cnst_min_max, ap);
-    if (!reducer.pinCapsOneValue())
+    if (parasitics->checkAnnotation(drvr_pin, drvr_node)) {
       reducer.makePiElmore(parasitic_network, drvr_pin, drvr_node,
-			   coupling_cap_factor, RiseFall::fall(),
-			   op_cond, corner, cnst_min_max, ap);
+                           coupling_cap_factor, RiseFall::rise(),
+                           op_cond, corner, cnst_min_max, ap);
+      if (!reducer.pinCapsOneValue())
+        reducer.makePiElmore(parasitic_network, drvr_pin, drvr_node,
+                             coupling_cap_factor, RiseFall::fall(),
+                             op_cond, corner, cnst_min_max, ap);
+    }
   }
 }
 
@@ -330,7 +332,7 @@ ReduceToPiElmore::ReduceToPiElmore(StaState *sta) :
 }
 
 void
-ReduceToPiElmore::makePiElmore(Parasitic *parasitic_network,
+ReduceToPiElmore::makePiElmore(const Parasitic *parasitic_network,
 			       const Pin *drvr_pin,
 			       ParasiticNode *drvr_node,
 			       float coupling_cap_factor,
@@ -398,12 +400,12 @@ class ReduceToPiPoleResidue2 : public ReduceToPi
 public:
   ReduceToPiPoleResidue2(StaState *sta);
   ~ReduceToPiPoleResidue2();
-  void findPolesResidues(Parasitic *parasitic_network,
+  void findPolesResidues(const Parasitic *parasitic_network,
 			 Parasitic *pi_pole_residue,
 			 const Pin *drvr_pin,
 			 ParasiticNode *drvr_node,
 			 const ParasiticAnalysisPt *ap);
-  void makePiPoleResidue2(Parasitic *parasitic_network,
+  void makePiPoleResidue2(const Parasitic *parasitic_network,
 			  const Pin *drvr_pin,
 			  ParasiticNode *drvr_node,
 			  float coupling_cap_factor,
@@ -464,7 +466,7 @@ ReduceToPiPoleResidue2::ReduceToPiPoleResidue2(StaState *sta) :
 // Three Moments of the Impulse Response", Proceedings of the 33rd
 // Design Automation Conference, 1996, pg 611-616.
 void
-reduceToPiPoleResidue2(Parasitic *parasitic_network,
+reduceToPiPoleResidue2(const Parasitic *parasitic_network,
 		       const Pin *drvr_pin,
 		       float coupling_cap_factor,
 		       const OperatingConditions *op_cond,
@@ -479,18 +481,20 @@ reduceToPiPoleResidue2(Parasitic *parasitic_network,
     debugPrint(sta->debug(), "parasitic_reduce", 1, "Reduce driver %s",
                sta->network()->pathName(drvr_pin));
     ReduceToPiPoleResidue2 reducer(sta);
-    reducer.makePiPoleResidue2(parasitic_network, drvr_pin, drvr_node,
-			       coupling_cap_factor, RiseFall::rise(),
-			       op_cond, corner, cnst_min_max, ap);
-    if (!reducer.pinCapsOneValue())
+    if (parasitics->checkAnnotation(drvr_pin, drvr_node)) {
       reducer.makePiPoleResidue2(parasitic_network, drvr_pin, drvr_node,
-				 coupling_cap_factor, RiseFall::fall(),
-				 op_cond, corner, cnst_min_max, ap);
+                                 coupling_cap_factor, RiseFall::rise(),
+                                 op_cond, corner, cnst_min_max, ap);
+      if (!reducer.pinCapsOneValue())
+        reducer.makePiPoleResidue2(parasitic_network, drvr_pin, drvr_node,
+                                   coupling_cap_factor, RiseFall::fall(),
+                                   op_cond, corner, cnst_min_max, ap);
+    }
   }
 }
 
 void
-ReduceToPiPoleResidue2::makePiPoleResidue2(Parasitic *parasitic_network,
+ReduceToPiPoleResidue2::makePiPoleResidue2(const Parasitic *parasitic_network,
 					   const Pin *drvr_pin,
 					   ParasiticNode *drvr_node,
 					   float coupling_cap_factor,
@@ -520,7 +524,7 @@ ReduceToPiPoleResidue2::~ReduceToPiPoleResidue2()
 }
 
 void
-ReduceToPiPoleResidue2::findPolesResidues(Parasitic *parasitic_network,
+ReduceToPiPoleResidue2::findPolesResidues(const Parasitic *parasitic_network,
 					  Parasitic *pi_pole_residue,
 					  const Pin *drvr_pin,
 					  ParasiticNode *drvr_node,
@@ -531,7 +535,7 @@ ReduceToPiPoleResidue2::findPolesResidues(Parasitic *parasitic_network,
 
   PinConnectedPinIterator *pin_iter = network_->connectedPinIterator(drvr_pin);
   while (pin_iter->hasNext()) {
-    Pin *pin = pin_iter->next();
+    const Pin *pin = pin_iter->next();
     if (network_->isLoad(pin)) {
       ParasiticNode *load_node = parasitics_->findNode(parasitic_network, pin);
       if (load_node) {
