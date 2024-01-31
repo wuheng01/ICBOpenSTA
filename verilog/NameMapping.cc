@@ -89,7 +89,7 @@ Module::connectBus(std::string const & instname, VerilogNetPortRef *bus, Module*
     return;
   }
   PortMemberIterator *portIt = ml->network->memberIterator(port);
-  while(netIt->hasNext()) {
+  while(portIt->hasNext() && netIt->hasNext()) {
     const char* nname = netIt->next();
     assert(nname);
     std::string netname  = nname;
@@ -159,6 +159,9 @@ Module::processLibertyInstAsModule(VerilogModuleInst* s) {
         VerilogNetPortRefScalarNet *net = (VerilogNetPortRefScalarNet *)pin;
         std::string pinName = net->name();
         assert(pinName.size());
+        if (libertycell->findPort(pinName.c_str()) == nullptr) {
+          continue;
+        }
         const char *netName = net->netName();
         if (!netName) continue;
         assert(netName);
