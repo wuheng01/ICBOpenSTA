@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -40,8 +40,8 @@ public:
 			const MinMax *min_max,
 			CheckSlewLimits *check_slew_limit,
 			const StaState *sta);
-  bool operator()(Pin *pin1,
-		  Pin *pin2) const;
+  bool operator()(const Pin *pin1,
+		  const Pin *pin2) const;
 
 private:
   const Corner *corner_;
@@ -63,8 +63,8 @@ PinSlewLimitSlackLess::PinSlewLimitSlackLess(const Corner *corner,
 }
 
 bool
-PinSlewLimitSlackLess::operator()(Pin *pin1,
-				  Pin *pin2) const
+PinSlewLimitSlackLess::operator()(const Pin *pin1,
+				  const Pin *pin2) const
 {
   const Corner *corner1, *corner2;
   const RiseFall *rf1, *rf2;
@@ -155,10 +155,10 @@ CheckSlewLimits::checkSlews1(Vertex *vertex,
       && !sta_->clkNetwork()->isIdealClock(pin)) {
     for (auto rf : RiseFall::range()) {
       float limit;
-      bool limit_exists;
+      bool exists;
       findLimit(pin, vertex, corner, rf, min_max, check_clks,
-		limit, limit_exists);
-      if (limit_exists) {
+		limit, exists);
+      if (exists) {
 	checkSlew(vertex, corner, rf, min_max, limit,
 		  corner1, rf1, slew1, slack1, limit1);
       }
@@ -166,7 +166,7 @@ CheckSlewLimits::checkSlews1(Vertex *vertex,
   }
 }
 
-// return the tightest limit.
+// Return the tightest limit.
 void
 CheckSlewLimits::findLimit(const Pin *pin,
 			   const Vertex *vertex,
@@ -178,14 +178,12 @@ CheckSlewLimits::findLimit(const Pin *pin,
 			   float &limit,
 			   bool &exists) const
 {
-  exists = false;
   const Network *network = sta_->network();
   Sdc *sdc = sta_->sdc();
+  LibertyPort *port = network->libertyPort(pin);
+  findLimit(port, corner, min_max,
+            limit, exists);
 
-  // Default to top ("design") limit.
-  Cell *top_cell = network->cell(network->topInstance());
-  sdc->slewLimit(top_cell, min_max,
-		 limit, exists);
   float limit1;
   bool exists1;
   if (check_clks) {
@@ -207,6 +205,7 @@ CheckSlewLimits::findLimit(const Pin *pin,
       }
     }
   }
+
   if (network->isTopLevelPort(pin)) {
     Port *port = network->port(pin);
     sdc->slewLimit(port, min_max, limit1, exists1);
@@ -219,13 +218,13 @@ CheckSlewLimits::findLimit(const Pin *pin,
     InputDrive *drive = sdc->findInputDrive(port);
     if (drive) {
       for (auto rf : RiseFall::range()) {
-        LibertyCell *cell;
-        LibertyPort *from_port;
+        const LibertyCell *cell;
+        const LibertyPort *from_port;
         float *from_slews;
-        LibertyPort *to_port;
+        const LibertyPort *to_port;
         drive->driveCell(rf, min_max, cell, from_port, from_slews, to_port);
         if (to_port) {
-          LibertyPort *corner_port = to_port->cornerPort(corner->libertyIndex(min_max));
+          const LibertyPort *corner_port = to_port->cornerPort(corner, min_max);
           corner_port->slewLimit(min_max, limit1, exists1);
           if (!exists1
               && corner_port->direction()->isAnyOutput()
@@ -241,21 +240,46 @@ CheckSlewLimits::findLimit(const Pin *pin,
       }
     }
   }
-  else {
-    LibertyPort *port = network->libertyPort(pin);
-    if (port) {
-      LibertyPort *corner_port = port->cornerPort(corner->libertyIndex(min_max));
-      corner_port->slewLimit(min_max, limit1, exists1);
-      if (!exists1
-	  && corner_port->direction()->isAnyOutput()
-	  && min_max == MinMax::max())
-	corner_port->libertyLibrary()->defaultMaxSlew(limit1, exists1);
-      if (exists1
-	  && (!exists
-	      || min_max->compare(limit, limit1))) {
-	limit = limit1;
-	exists = true;
-      }
+}
+
+void
+CheckSlewLimits::findLimit(const LibertyPort *port,
+                           const Corner *corner,
+			   const MinMax *min_max,
+			   // Return values.
+			   float &limit,
+			   bool &exists) const
+{
+  limit = INF;
+  exists = false;
+
+  const Network *network = sta_->network();
+  Sdc *sdc = sta_->sdc();
+  float limit1;
+  bool exists1;
+
+  // Default to top ("design") limit.
+  Cell *top_cell = network->cell(network->topInstance());
+  sdc->slewLimit(top_cell, min_max,
+		 limit1, exists1);
+  if (exists1) {
+    limit = limit1;
+    exists = true;
+  }
+
+  if (port) {
+    const LibertyPort *corner_port = port->cornerPort(corner, min_max);
+    corner_port->slewLimit(min_max, limit1, exists1);
+    if (!exists1
+        // default_max_transition only applies to outputs.
+        && corner_port->direction()->isAnyOutput()
+        && min_max == MinMax::max())
+      corner_port->libertyLibrary()->defaultMaxSlew(limit1, exists1);
+    if (exists1
+        && (!exists
+            || min_max->compare(limit, limit1))) {
+      limit = limit1;
+      exists = true;
     }
   }
 }
@@ -268,9 +292,9 @@ CheckSlewLimits::clockDomains(const Vertex *vertex,
   VertexPathIterator path_iter(const_cast<Vertex*>(vertex), sta_);
   while (path_iter.hasNext()) {
     Path *path = path_iter.next();
-    Clock *clk = path->clock(sta_);
+    const Clock *clk = path->clock(sta_);
     if (clk)
-      clks.insert(clk);
+      clks.insert(const_cast<Clock*>(clk));
   }
 }
 
@@ -307,19 +331,19 @@ CheckSlewLimits::checkSlew(Vertex *vertex,
 
 ////////////////////////////////////////////////////////////////
 
-PinSeq *
-CheckSlewLimits::checkSlewLimits(Net *net,
+PinSeq
+CheckSlewLimits::checkSlewLimits(const Net *net,
                                  bool violators,
                                  const Corner *corner,
                                  const MinMax *min_max)
 {
   const Network *network = sta_->network();
-  PinSeq *slew_pins = new PinSeq;
+  PinSeq slew_pins;
   float min_slack = MinMax::min()->initValue();
   if (net) {
     NetPinIterator *pin_iter = network->pinIterator(net);
     while (pin_iter->hasNext()) {
-      Pin *pin = pin_iter->next();
+      const Pin *pin = pin_iter->next();
       checkSlewLimits(pin, violators, corner, min_max, slew_pins, min_slack);
     }
     delete pin_iter;
@@ -327,7 +351,7 @@ CheckSlewLimits::checkSlewLimits(Net *net,
   else {
     LeafInstanceIterator *inst_iter = network->leafInstanceIterator();
     while (inst_iter->hasNext()) {
-      Instance *inst = inst_iter->next();
+      const Instance *inst = inst_iter->next();
       checkSlewLimits(inst, violators,corner, min_max, slew_pins, min_slack);
     }
     delete inst_iter;
@@ -337,17 +361,17 @@ CheckSlewLimits::checkSlewLimits(Net *net,
   }
   sort(slew_pins, PinSlewLimitSlackLess(corner, min_max, this, sta_));
   // Keep the min slack pin unless all violators or net pins.
-  if (!slew_pins->empty() && !violators && net == nullptr)
-    slew_pins->resize(1);
+  if (!slew_pins.empty() && !violators && net == nullptr)
+    slew_pins.resize(1);
   return slew_pins;
 }
 
 void
-CheckSlewLimits::checkSlewLimits(Instance *inst,
+CheckSlewLimits::checkSlewLimits(const Instance *inst,
                                  bool violators,
                                  const Corner *corner,
                                  const MinMax *min_max,
-                                 PinSeq *slew_pins,
+                                 PinSeq &slew_pins,
                                  float &min_slack)
 {
   const Network *network = sta_->network();
@@ -360,11 +384,11 @@ CheckSlewLimits::checkSlewLimits(Instance *inst,
 }
 
 void
-CheckSlewLimits::checkSlewLimits(Pin *pin,
+CheckSlewLimits::checkSlewLimits(const Pin *pin,
                                  bool violators,
                                  const Corner *corner,
                                  const MinMax *min_max,
-                                 PinSeq *slew_pins,
+                                 PinSeq &slew_pins,
                                  float &min_slack)
 {
   const Corner *corner1;
@@ -375,12 +399,12 @@ CheckSlewLimits::checkSlewLimits(Pin *pin,
   if (!fuzzyInf(slack)) {
     if (violators) {
       if (slack < 0.0)
-        slew_pins->push_back(pin);
+        slew_pins.push_back(pin);
     }
     else {
-      if (slew_pins->empty()
+      if (slew_pins.empty()
           || slack < min_slack) {
-        slew_pins->push_back(pin);
+        slew_pins.push_back(pin);
         min_slack = slack;
       }
     }

@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -177,78 +177,6 @@ proc define_hidden_cmd_args { cmd arglist } {
   namespace export $cmd
 }
 
-# This is used in lieu of command completion to make sdc commands
-# like get_ports be abbreviated get_port.
-proc define_cmd_alias { alias cmd } {
-  eval "proc $alias { args } { eval [concat $cmd \$args] }"
-  namespace export $alias
-}
-
-proc cmd_usage_error { cmd } {
-  variable cmd_args
-
-  if [info exists cmd_args($cmd)] {
-    sta_error 404 "Usage: $cmd $cmd_args($cmd)"
-  } else {
-    sta_error 405 "Usage: $cmd argument error"
-  }
-}
-
-################################################################
-
-define_cmd_args "help" {[pattern]}
-
-proc_redirect help {
-  variable cmd_args
-
-  set arg_count [llength $args]
-  if { $arg_count == 0 } {
-    set pattern "*"
-  } elseif { $arg_count == 1 } {
-    set pattern [lindex $args 0]
-  } else {
-    cmd_usage_error "help"
-  }
-  set matches [array names cmd_args $pattern]
-  if { $matches != {} } {
-    foreach cmd [lsort $matches] {
-      show_cmd_args $cmd
-    }
-  } else {
-    sta_warn 300 "no commands match '$pattern'."
-  }
-}
-
-proc show_cmd_args { cmd } {
-  variable cmd_args
-
-  set max_col 80
-  set indent 2
-  set indent_str "  "
-  set line $cmd
-  set col [string length $cmd]
-  set arglist $cmd_args($cmd)
-  # Break the arglist up into max_col length lines.
-  while {1} {
-    if {[regexp {(^[\n ]*)([a-zA-Z0-9_\\\|\-]+|\[[^\[]+\])(.*)} \
-	   $arglist ignore space arg rest]} {
-      set arg_length [string length $arg]
-      if { $col + $arg_length < $max_col } {
-	set line "$line $arg"
-	set col [expr $col + $arg_length + 1]
-      } else {
-        report_line $line
-	set line "$indent_str $arg"
-	set col [expr $indent + $arg_length + 1]
-      }
-      set arglist $rest
-    } else {
-      report_line $line
-      break
-    }
-  }
-}
-
 ################################################################
 
 proc sta_warn { msg_id msg } {
@@ -395,60 +323,45 @@ proc check_percent { cmd_arg arg } {
 
 ################################################################
 
-# The builtin Tcl "source" and "unknown" commands are redefined by sta.
-# This rename provides a mechanism to refer to the original TCL
-# command.
-# Protected so this file can be reloaded without blowing up.
-if { ![info exists renamed_source] } {
-  rename source builtin_source
-  rename unknown builtin_unknown
-  set renamed_source 1
-}
-
-# Numeric expressions eval to themselves so braces aren't required
-# around bus names like foo[2] or foo[*].
+# Bus signal names like foo[2] or bar[31:0] use brackets that
+# look like "eval" to TCL. Catch the numeric "function" with the
+# namespace's unknown handler and return the value instead of an error.
 proc sta_unknown { args } {
   global errorCode errorInfo
   
   set name [lindex $args 0]
-  if { [llength $args] == 1 \
-	 && ([string is integer $name] || [string equal $name "*"]) } {
+  if { [llength $args] == 1 && [is_bus_subscript $args] } {
     return "\[$args\]"
-  } else {
-    # Implement command name abbreviation from init.tcl/unknown.
-    # Remove restrictions in that version that prevent it from
-    # running in non-interactive interpreters.
-    
-    set ret [catch {set cmds [info commands $name*]} msg]
-    if {[string equal $name "::"]} {
-      set name ""
+  }
+
+  # Command name abbreviation support.
+  set ret [catch {set cmds [info commands $name*]} msg]
+  if {[string equal $name "::"]} {
+    set name ""
+  }
+  if { $ret != 0 } {
+    return -code $ret -errorcode $errorCode \
+      "error in unknown while checking if \"$name\" is a unique command abbreviation: $msg"
     }
-    if {$ret != 0} {
-      return -code $ret -errorcode $errorCode \
-	"error in unknown while checking if \"$name\" is a unique command abbreviation: $msg"
-    }
-    if {[llength $cmds] == 1} {
-      return [uplevel 1 [lreplace $args 0 0 $cmds]]
-    }
-    if {[llength $cmds]} {
-      if {[string equal $name ""]} {
-	return -code error "empty command name \"\""
-      } else {
-	return -code error \
-	  "ambiguous command name \"$name\": [lsort $cmds]"
-      }
+  if { [llength $cmds] == 1 } {
+    return [uplevel 1 [lreplace $args 0 0 $cmds]]
+  }
+  if { [llength $cmds] > 1 } {
+    if {[string equal $name ""]} {
+      return -code error "empty command name \"\""
     } else {
-      # I cannot figure out why the first call to ::history add
-      # that presumably loads history.tcl causes the following error:
-      # Error: history.tcl, 306 invoked "return" outside of a proc.
-      # But this squashes the error.
-      if { [lindex $args 0] == "::history" } {
-	return ""
-      } else {
-	return [uplevel 1 builtin_unknown $args]
-      }
+      return -code error \
+        "ambiguous command name \"$name\": [lsort $cmds]"
     }
   }
+
+  ::unknown {*}$args
+}
+
+proc is_bus_subscript { subscript } {
+  return [expr [string is integer $subscript] \
+            || [string match $subscript "*"] \
+            || [regexp {[0-9]+:[0-9]} $subscript]]
 }
 
 namespace unknown sta_unknown

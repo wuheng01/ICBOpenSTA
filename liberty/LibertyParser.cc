@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,8 +16,8 @@
 
 #include "LibertyParser.hh"
 
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
 
 #include "Report.hh"
 #include "Error.hh"
@@ -547,7 +547,8 @@ libertyIncludeBegin(const char *filename)
     liberty_line = 1;
   }
   else
-    libertyParseError("cannot open include file %s.", filename);
+    liberty_report->fileWarn(25, sta::liberty_filename, sta::liberty_line,
+                             "cannot open include file %s.", filename);
 }
 
 void
@@ -584,6 +585,12 @@ libertyParseError(const char *fmt, ...)
   va_end(args);
 }
 
+void
+deleteLibertyGroups()
+{
+  liberty_group_stack.deleteContentsClear();
+}
+
 } // namespace
 
 ////////////////////////////////////////////////////////////////
@@ -594,8 +601,8 @@ void libertyParseFlushBuffer();
 int
 LibertyParse_error(const char *msg)
 {
+  libertyParseFlushBuffer();
   sta::liberty_report->fileError(26, sta::liberty_filename, sta::liberty_line,
 				 "%s.", msg);
-  libertyParseFlushBuffer();
   return 0;
 }

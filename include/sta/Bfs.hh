@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
 
 #include <mutex>
 
-#include "DisallowCopyAssign.hh"
 #include "Iterator.hh"
 #include "Set.hh"
 #include "GraphClass.hh"
@@ -113,9 +112,6 @@ protected:
 
   friend class BfsFwdIterator;
   friend class BfsBkwdIterator;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(BfsIterator);
 };
 
 class BfsFwdIterator : public BfsIterator
@@ -136,9 +132,6 @@ protected:
   virtual bool levelLess(Level level1,
 			 Level level2) const;
   virtual void incrLevel(Level &level);
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(BfsFwdIterator);
 };
 
 class BfsBkwdIterator : public BfsIterator
@@ -159,9 +152,6 @@ protected:
   virtual bool levelLess(Level level1,
 			 Level level2) const;
   virtual void incrLevel(Level &level);
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(BfsBkwdIterator);
 };
 
 } // namespace

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "MinMax.hh"
 #include "RiseFallMinMax.hh"
 #include "SdcClass.hh"
@@ -35,7 +34,6 @@ public:
   float period() const { return period_; }
   // Virtual clocks have no pins.
   bool isVirtual() const;
-  PinSet &pins() { return pins_; }
   const PinSet &pins() const { return pins_; }
   // The clock source pin's leaf pins.
   //  If the source pin is hierarchical, the leaf pins are:
@@ -45,7 +43,7 @@ public:
   const PinSet &leafPins() const { return leaf_pins_; }
   // Clock pin used by input/output delay for propagated generated
   // clock insertion delay.
-  Pin *defaultPin() const;
+  const Pin *defaultPin() const;
   bool addToPins() const { return add_to_pins_; }
   void setAddToPins(bool add_to_pins);
   FloatSeq *waveform() { return waveform_; }
@@ -70,7 +68,7 @@ public:
 	       const MinMaxAll *min_max,
 	       float slew);
   void removeSlew();
-  RiseFallMinMax *slews() { return &slews_; }
+  const RiseFallMinMax &slews() const { return slews_; }
   void setSlewLimit(const RiseFallBoth *rf,
 		    const PathClkOrData clk_data,
 		    const MinMax *min_max,
@@ -95,8 +93,8 @@ public:
   void setPeriod(float period);
   void setWaveform(FloatSeq *waveform);
 
-  void addPin(Pin *pin);
-  void deletePin(Pin *pin);
+  void addPin(const Pin *pin);
+  void deletePin(const Pin *pin);
   void makeLeafPins(const Network *network);
 
   bool isGenerated() const;
@@ -106,8 +104,6 @@ public:
   Clock *masterClk() const { return master_clk_; }
   bool masterClkInfered() const { return master_clk_infered_; }
   void setInferedMasterClk(Clock *master_clk);
-  Pin *pllOut() const { return pll_out_; }
-  Pin *pllFdbk() const { return pll_fdbk_; }
   int divideBy() const { return divide_by_; }
   int multiplyBy() const { return multiply_by_; }
   float dutyCycle() const { return duty_cycle_; }
@@ -126,9 +122,10 @@ public:
   void waveformInvalid();
 
 protected:
-  // Private to Constraints::makeClock.
+  // Private to Sdc::makeClock.
   Clock(const char *name,
-	int index);
+	int index,
+        const Network *network);
   void initClk(PinSet *pins,
 	       bool add_to_pins,
 	       float period,
@@ -139,8 +136,6 @@ protected:
 			bool add_to_pins,
 			Pin *src_pin,
 			Clock *master_clk,
-			Pin *pll_out,
-			Pin *pll_fdbk,
 			int divide_by,
 			int multiply_by,
 			float duty_cycle,
@@ -166,8 +161,6 @@ protected:
   bool add_to_pins_;
   // Hierarchical pins in pins_ become driver pins through the pin.
   PinSet leaf_pins_;
-  Pin *pll_out_;
-  Pin *pll_fdbk_;
   float period_;
   FloatSeq *waveform_;
   bool waveform_valid_;
@@ -192,8 +185,6 @@ protected:
   FloatSeq *edge_shifts_;
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(Clock);
-
   friend class Sdc;
 };
 
@@ -213,7 +204,6 @@ public:
 
   friend class Clock;  // builder
 private:
-  DISALLOW_COPY_AND_ASSIGN(ClockEdge);
   ClockEdge(Clock *clock, RiseFall *rf);
   void setTime(float time);
 
@@ -228,16 +218,17 @@ int
 clkCmp(const Clock *clk1,
        const Clock *clk2);
 int
-clkEdgeCmp(ClockEdge *clk_edge1,
-	   ClockEdge *clk_edge2);
+clkEdgeCmp(const ClockEdge *clk_edge1,
+	   const ClockEdge *clk_edge2);
 bool
-clkEdgeLess(ClockEdge *clk_edge1,
-	    ClockEdge *clk_edge2);
+clkEdgeLess(const ClockEdge *clk_edge1,
+	    const ClockEdge *clk_edge2);
 
 class ClockNameLess
 {
 public:
-  bool operator()(const Clock *clk1, const Clock *clk2);
+  bool operator()(const Clock *clk1,
+                  const Clock *clk2);
 };
 
 ////////////////////////////////////////////////////////////////
@@ -266,8 +257,6 @@ public:
   bool empty() const;
 
 private:
-  DISALLOW_COPY_AND_ASSIGN(InterClockUncertainty);
-
   const Clock *src_;
   const Clock *target_;
   RiseFallMinMax uncertainties_[RiseFall::index_count];
@@ -290,8 +279,10 @@ public:
   }
 };
 
-void
-sortClockSet(ClockSet * set,
-	     ClockSeq &clks);
+ClockSeq
+sortByName(ClockSet *set);
+int
+compare(const ClockSet *set1,
+        const ClockSet *set2);
 
 } // namespace

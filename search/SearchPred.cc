@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -176,8 +176,8 @@ searchThru(const Edge *edge,
 	   const TimingArc *arc,
 	   const Graph *graph)
 {
-  RiseFall *from_rf = arc->fromTrans()->asRiseFall();
-  RiseFall *to_rf = arc->toTrans()->asRiseFall();
+  RiseFall *from_rf = arc->fromEdge()->asRiseFall();
+  RiseFall *to_rf = arc->toEdge()->asRiseFall();
   // Ignore transitions other than rise/fall.
   return from_rf && to_rf
     && searchThru(edge->from(graph), from_rf, edge, edge->to(graph), to_rf);

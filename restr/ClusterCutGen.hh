@@ -27,8 +27,8 @@ public:
     Vertex* PickMostNegativeSlack(std::map<float,Vertex*>&){return nullptr;}
     
     bool InvariantPoint(Pin*) {return false;}
-    void WalkBackwardsToTimingEndPointsR(Pin*,int depth);
-    void WalkForwardsToTimingEndPointsR(Pin* start_pin, int depth);
+    void WalkBackwardsToTimingEndPointsR(const Pin*,int depth);
+    void WalkForwardsToTimingEndPointsR(const Pin* start_pin, int depth);
     Cut* ExtractCut(int id);
     void ResetCutTemporaries(){ leaves_.clear(); roots_.clear(); cut_volume_.clear();ordered_leaves_.clear();ordered_roots_.clear(); pin_visited_.clear();}
     void UpdateVertexList(Vertex* root,
@@ -43,10 +43,10 @@ private:
     std::vector<Cut*> cutset_;
 
     //temporaries for cut building
-    std::map<Pin*,int> leaves_;
-    std::map<Pin*,int> roots_;
+    std::map<const Pin*,int> leaves_;
+    std::map<const Pin*,int> roots_;
     std::set<Instance*> cut_volume_;
-    std::set<Pin*> pin_visited_;
+    std::set<const Pin*> pin_visited_;
     std::vector<Pin*> ordered_leaves_;
     std::vector<Pin*> ordered_roots_;
     int cut_id_;

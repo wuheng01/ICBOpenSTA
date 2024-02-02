@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,8 +15,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
-
-#include "DisallowCopyAssign.hh"
 
 namespace sta {
 
@@ -122,9 +120,6 @@ protected:
   DispatchQueue *dispatch_queue_;
   bool pocv_enabled_;
   float sigma_factor_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(StaState);
 };
 
 } // namespace

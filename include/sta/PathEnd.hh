@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
 
 #include <string>
 
-#include "DisallowCopyAssign.hh"
 #include "LibertyClass.hh"
 #include "GraphClass.hh"
 #include "SdcClass.hh"
@@ -105,7 +104,7 @@ public:
   virtual Slack slack(const StaState *sta) const = 0;
   virtual Slack slackNoCrpr(const StaState *sta) const = 0;
   virtual Arrival borrow(const StaState *sta) const;
-  ClockEdge *sourceClkEdge(const StaState *sta) const;
+  const ClockEdge *sourceClkEdge(const StaState *sta) const;
   // Time offset for the path start so the path begins in the correct
   // source cycle.
   virtual float sourceClkOffset(const StaState *sta) const = 0;
@@ -113,8 +112,8 @@ public:
   virtual Delay sourceClkInsertionDelay(const StaState *sta) const;
   virtual PathVertex *targetClkPath();
   virtual const PathVertex *targetClkPath() const;
-  virtual Clock *targetClk(const StaState *sta) const;
-  virtual ClockEdge *targetClkEdge(const StaState *sta) const;
+  virtual const Clock *targetClk(const StaState *sta) const;
+  virtual const ClockEdge *targetClkEdge(const StaState *sta) const;
   const RiseFall *targetClkEndTrans(const StaState *sta) const;
   // Target clock with cycle accounting and source clock offsets.
   virtual float targetClkTime(const StaState *sta) const;
@@ -207,9 +206,6 @@ protected:
 				     Arrival src_clk_arrival,
 				     const StaState *sta);
   PathRef path_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEnd);
 };
 
 class PathEndUnconstrained : public PathEnd
@@ -228,9 +224,6 @@ public:
   virtual Slack slack(const StaState *sta) const;
   virtual Slack slackNoCrpr(const StaState *sta) const;
   virtual float sourceClkOffset(const StaState *sta) const;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndUnconstrained);
 };
 
 class PathEndClkConstrained : public PathEnd
@@ -239,8 +232,8 @@ public:
   virtual float sourceClkOffset(const StaState *sta) const;
   virtual Delay sourceClkLatency(const StaState *sta) const;
   virtual Delay sourceClkInsertionDelay(const StaState *sta) const;
-  virtual Clock *targetClk(const StaState *sta) const;
-  virtual ClockEdge *targetClkEdge(const StaState *sta) const;
+  virtual const Clock *targetClk(const StaState *sta) const;
+  virtual const ClockEdge *targetClkEdge(const StaState *sta) const;
   virtual PathVertex *targetClkPath();
   virtual const PathVertex *targetClkPath() const;
   virtual float targetClkTime(const StaState *sta) const;
@@ -279,9 +272,6 @@ protected:
   PathVertex clk_path_;
   mutable Crpr crpr_;
   mutable bool crpr_valid_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndClkConstrained);
 };
 
 class PathEndClkConstrainedMcp : public PathEndClkConstrained
@@ -310,9 +300,6 @@ protected:
 		    const StaState *sta) const;
 
   MultiCyclePath *mcp_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndClkConstrainedMcp);
 };
 
 // Path constrained by timing check.
@@ -348,9 +335,6 @@ protected:
 
   TimingArc *check_arc_;
   Edge *check_edge_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndCheck);
 };
 
 // PathEndClkConstrained::clk_path_ is the latch enable.
@@ -415,8 +399,6 @@ private:
   PathDelay *path_delay_;
   // Source clk arrival for set_max_delay -ignore_clk_latency.
   Arrival src_clk_arrival_;
-
-  DISALLOW_COPY_AND_ASSIGN(PathEndLatchCheck);
 };
 
 // Path constrained by an output delay.
@@ -438,7 +420,7 @@ public:
   virtual bool isOutputDelay() const { return true; }
   virtual ArcDelay margin(const StaState *sta) const;
   virtual TimingRole *checkRole(const StaState *sta) const;
-  virtual ClockEdge *targetClkEdge(const StaState *sta) const;
+  virtual const ClockEdge *targetClkEdge(const StaState *sta) const;
   virtual Arrival targetClkArrivalNoCrpr(const StaState *sta) const;
   virtual Delay targetClkDelay(const StaState *sta) const;
   virtual Delay targetClkInsertionDelay(const StaState *sta) const;
@@ -464,9 +446,6 @@ protected:
 		   Arrival &latency) const;
 
   OutputDelay *output_delay_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndOutputDelay);
 };
 
 // Clock path constrained clock gating signal.
@@ -501,9 +480,6 @@ protected:
 
   TimingRole *check_role_;
   ArcDelay margin_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndGatedClock);
 };
 
 class PathEndDataCheck : public PathEndClkConstrainedMcp
@@ -520,7 +496,7 @@ public:
   virtual void reportShort(ReportPath *report) const;
   virtual void reportFull(ReportPath *report) const;
   virtual bool isDataCheck() const { return true; }
-  virtual ClockEdge *targetClkEdge(const StaState *sta) const;
+  virtual const ClockEdge *targetClkEdge(const StaState *sta) const;
   virtual TimingRole *checkRole(const StaState *sta) const;
   virtual ArcDelay margin(const StaState *sta) const;
   virtual int exceptPathCmp(const PathEnd *path_end,
@@ -542,9 +518,6 @@ protected:
 private:
   PathVertex data_clk_path_;
   DataCheck *check_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndDataCheck);
 };
 
 // Path constrained by set_min/max_delay.
@@ -580,7 +553,7 @@ public:
   virtual PathDelay *pathDelay() const { return path_delay_; }
   virtual ArcDelay margin(const StaState *sta) const;
   virtual float sourceClkOffset(const StaState *sta) const;
-  virtual ClockEdge *targetClkEdge(const StaState *sta) const;
+  virtual const ClockEdge *targetClkEdge(const StaState *sta) const;
   virtual float targetClkTime(const StaState *sta) const;
   virtual Arrival targetClkArrivalNoCrpr(const StaState *sta) const;
   virtual float targetClkOffset(const StaState *sta) const;
@@ -609,9 +582,6 @@ protected:
   OutputDelay *output_delay_;
   // Source clk arrival for set_min/max_delay -ignore_clk_latency.
   Arrival src_clk_arrival_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(PathEndPathDelay);
 };
 
 ////////////////////////////////////////////////////////////////

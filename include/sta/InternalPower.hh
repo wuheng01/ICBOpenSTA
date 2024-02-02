@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "LibertyClass.hh"
 #include "Transition.hh"
 
@@ -43,9 +42,6 @@ protected:
   FuncExpr *when_;
   InternalPowerModel *models_[RiseFall::index_count];
   const  char *related_pg_pin_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(InternalPowerAttrs);
 };
 
 class InternalPower
@@ -72,9 +68,6 @@ protected:
   FuncExpr *when_;
   const  char *related_pg_pin_;
   InternalPowerModel *models_[RiseFall::index_count];
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(InternalPower);
 };
 
 class InternalPowerModel
@@ -86,12 +79,11 @@ public:
 	      const Pvt *pvt,
 	      float in_slew,
 	      float load_cap) const;
-  void reportPower(const LibertyCell *cell,
-		   const Pvt *pvt,
-		   float in_slew,
-		   float load_cap,
-		   int digits,
-		   string *result) const;
+  string reportPower(const LibertyCell *cell,
+                     const Pvt *pvt,
+                     float in_slew,
+                     float load_cap,
+                     int digits) const;
 
 protected:
   void findAxisValues(float in_slew,
@@ -100,16 +92,13 @@ protected:
 		      float &axis_value1,
 		      float &axis_value2,
 		      float &axis_value3) const;
-  float axisValue(TableAxis *axis,
+  float axisValue(const TableAxis *axis,
 		  float in_slew,
 		  float load_cap) const;
   bool checkAxes(const TableModel *model);
-  bool checkAxis(TableAxis *axis);
+  bool checkAxis(const TableAxis *axis);
 
   TableModel *model_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(InternalPowerModel);
 };
 
 } // namespace

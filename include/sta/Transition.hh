@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 #include <array>
 #include <vector>
-#include "DisallowCopyAssign.hh"
+
 #include "Iterator.hh"
 #include "Map.hh"
 #include "StringUtil.hh"
@@ -55,9 +55,9 @@ public:
   RiseFall *opposite() const;
 
   // for range support.
-  // for (auto tr : RiseFall::range()) {}
+  // for (auto rf : RiseFall::range()) {}
   static const std::array<RiseFall*, 2> &range() { return range_; }
-  // for (auto tr_index : RiseFall::rangeIndex()) {}
+  // for (auto rf_index : RiseFall::rangeIndex()) {}
   static const std::array<int, 2> &rangeIndex() { return range_index_; }
   static const int index_count = 2;
   static const int index_max = (index_count - 1);
@@ -77,9 +77,6 @@ protected:
   static RiseFall fall_;
   static const std::array<RiseFall*, 2> range_;
   static const std::array<int, 2> range_index_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(RiseFall);
 };
 
 // Rise/fall/risefall transition.
@@ -128,9 +125,6 @@ protected:
   static RiseFallBoth rise_;
   static RiseFallBoth fall_;
   static RiseFallBoth rise_fall_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(RiseFallBoth);
 };
 
 // General SDF transition.
@@ -196,27 +190,6 @@ private:
 
   static TransitionMap transition_map_;
   static int max_index_;
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(Transition);
-};
-
-// Obsolete. Use range iteration instead.
-// for (RiseFall *rf : RiseFall::range()) {}
-class RiseFallIterator : public Iterator<RiseFall*>
-{
-public:
-  RiseFallIterator() : index_(0), index_max_(RiseFall::index_max) {}
-  explicit RiseFallIterator(const RiseFallBoth *rf);
-  void init();
-  virtual bool hasNext();
-  virtual RiseFall *next();
-
-private:
-  DISALLOW_COPY_AND_ASSIGN(RiseFallIterator);
-
-  int index_;
-  int index_max_;
 };
 
 } // namespace

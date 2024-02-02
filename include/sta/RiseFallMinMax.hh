@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include "DisallowCopyAssign.hh"
 #include "MinMax.hh"
 #include "Transition.hh"
 
@@ -54,6 +53,9 @@ public:
   void setValue(float value);
   void mergeValue(const RiseFallBoth *rf,
 		  const MinMaxAll *min_max,
+		  float value);
+  void mergeValue(const RiseFall *rf,
+		  const MinMax *min_max,
 		  float value);
   void setValues(RiseFallMinMax *values);
   void removeValue(const RiseFallBoth *rf,

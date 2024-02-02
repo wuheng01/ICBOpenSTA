@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@ define_cmd_args "read_spef" \
      [-min]\
      [-max]\
      [-path path]\
-     [-increment]\
      [-pin_cap_included]\
      [-keep_capacitive_coupling]\
      [-coupling_reduction_factor factor]\
@@ -35,8 +34,7 @@ define_cmd_args "read_spef" \
 proc_redirect read_spef {
   parse_key_args "read_spef" args \
     keys {-path -coupling_reduction_factor -reduce_to -corner} \
-    flags {-min -max -increment -pin_cap_included \
-	     -keep_capacitive_coupling \
+    flags {-min -max -increment -pin_cap_included -keep_capacitive_coupling \
 	     -delete_after_reduce -quiet -save -disable_reduce_parsitic_network_circle}
   check_argc_eq1 "report_spef" $args
 
@@ -50,7 +48,6 @@ proc_redirect read_spef {
   }
   set corner [parse_corner_or_all keys]
   set min_max [parse_min_max_all_flags flags]
-  set increment [info exists flags(-increment)]
   set coupling_reduction_factor 1.0
   if [info exists keys(-coupling_reduction_factor)] {
     set coupling_reduction_factor $keys(-coupling_reduction_factor)
@@ -71,9 +68,23 @@ proc_redirect read_spef {
   set save [info exists flags(-save)]
   set disable_reduce_parsitic_network_circle [info exists flags(-disable_reduce_parsitic_network_circle)]
   set filename [file nativename [lindex $args 0]]
-  return [read_spef_cmd $filename $instance $corner $min_max $increment \
+  if { [info exists flags(-increment)] } {
+    sta_warn 706 "read_spef -increment is deprecated."
+  }
+  return [read_spef_cmd $filename $instance $corner $min_max \
 	    $pin_cap_included $keep_coupling_caps $coupling_reduction_factor \
 	    $reduce_to $delete_after_reduce $quiet $disable_reduce_parsitic_network_circle]
+}
+
+define_cmd_args "report_parasitic_annotation" {-report_unannotated}
+
+proc_redirect report_parasitic_annotation {
+  parse_key_args "report_parasitic_annotation" args \
+    keys {} flags {-report_unannotated}
+  check_argc_eq0 "report_parasitic_annotation" $args
+
+  set report_unannotated [info exists flags(-report_unannotated)]
+  report_parasitic_annotation_cmd $report_unannotated [sta::cmd_corner]
 }
 
 # set_pi_model [-min] [-max] drvr_pin c2 rpi c1

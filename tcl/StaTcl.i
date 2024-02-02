@@ -3,7 +3,7 @@
 %{
 
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -49,7 +49,9 @@
 #include "Transition.hh"
 #include "TimingRole.hh"
 #include "TimingArc.hh"
+#include "TableModel.hh"
 #include "Liberty.hh"
+#include "LibertyWriter.hh"
 #include "EquivCells.hh"
 #include "Wireload.hh"
 #include "PortDirection.hh"
@@ -78,7 +80,7 @@
 #include "search/CheckMinPulseWidths.hh"
 #include "search/Levelize.hh"
 #include "search/ReportPath.hh"
-#include "search/Power.hh"
+// #include "search/Power.hh"
 #include "verilog/VerilogReaderPvt.hh"
 
 namespace sta {
@@ -91,21 +93,10 @@ namespace sta {
 ////////////////////////////////////////////////////////////////
 
 typedef Vector<Library*> LibrarySeq;
-typedef CellSeq TmpCellSeq;
-typedef LibertyCellSeq TmpLibertyCellSeq;
-typedef PortSeq TmpPortSeq;
-typedef LibertyPortSeq TmpLibertyPortSeq;
-typedef PinSet TmpPinSet;
-typedef PinSeq TmpPinSeq;
-typedef InstanceSeq TmpInstanceSeq;
-typedef InstanceSet TmpInstanceSet;
 typedef MinPulseWidthCheckSeq::Iterator MinPulseWidthCheckSeqIterator;
-typedef FloatSeq TmpFloatSeq;
 typedef string TmpString;
 typedef Set<const char*, CharPtrLess> StringSet;
 typedef MinMaxAll MinMaxAllNull;
-typedef ClockSet TmpClockSet;
-typedef StringSeq TmpStringSeq;
 
 using std::vector;
 
@@ -178,37 +169,22 @@ tclListSeq(Tcl_Obj *const source,
     return nullptr;
 }
 
-LibertyLibrarySeq *
-tclListSeqLibertyLibrary(Tcl_Obj *const source,
-			 Tcl_Interp *interp)
-{
-  return tclListSeq<LibertyLibrary*>(source, SWIGTYPE_p_LibertyLibrary, interp);
-}
-
-vector<LibertyCell*> *
-tclListSeqLibertyCell(Tcl_Obj *const source,
-		      Tcl_Interp *interp)
-{
-  return tclListSeq<LibertyCell*>(source, SWIGTYPE_p_LibertyCell, interp);
-}
-
-template <class TYPE>
-Set<TYPE> *
+template <class SET_TYPE, class OBJECT_TYPE>
+SET_TYPE *
 tclListSet(Tcl_Obj *const source,
 	   swig_type_info *swig_type,
 	   Tcl_Interp *interp)
 {
   int argc;
   Tcl_Obj **argv;
-
   if (Tcl_ListObjGetElements(interp, source, &argc, &argv) == TCL_OK
       && argc > 0) {
-    Set<TYPE> *set = new Set<TYPE>;
+    SET_TYPE *set = new SET_TYPE;
     for (int i = 0; i < argc; i++) {
       void *obj;
       // Ignore returned TCL_ERROR because can't get swig_type_info.
       SWIG_ConvertPtr(argv[i], &obj, swig_type, false);
-      set->insert(reinterpret_cast<TYPE>(obj));
+      set->insert(reinterpret_cast<OBJECT_TYPE*>(obj));
     }
     return set;
   }
@@ -216,11 +192,28 @@ tclListSet(Tcl_Obj *const source,
     return nullptr;
 }
 
-PinSet *
-tclListSetPin(Tcl_Obj *const source,
-              Tcl_Interp *interp)
+template <class SET_TYPE, class OBJECT_TYPE>
+SET_TYPE *
+tclListNetworkSet(Tcl_Obj *const source,
+                  swig_type_info *swig_type,
+                  Tcl_Interp *interp,
+                  const Network *network)
 {
-  return tclListSet<Pin*>(source, SWIGTYPE_p_Pin, interp);
+  int argc;
+  Tcl_Obj **argv;
+  if (Tcl_ListObjGetElements(interp, source, &argc, &argv) == TCL_OK
+      && argc > 0) {
+    SET_TYPE *set = new SET_TYPE(network);
+    for (int i = 0; i < argc; i++) {
+      void *obj;
+      // Ignore returned TCL_ERROR because can't get swig_type_info.
+      SWIG_ConvertPtr(argv[i], &obj, swig_type, false);
+      set->insert(reinterpret_cast<OBJECT_TYPE*>(obj));
+    }
+    return set;
+  }
+  else
+    return nullptr;
 }
 
 StringSet *
@@ -263,34 +256,109 @@ tclListSeqConstChar(Tcl_Obj *const source,
     return nullptr;
 }
 
+StdStringSet *
+tclListSetStdString(Tcl_Obj *const source,
+		    Tcl_Interp *interp)
+{
+  int argc;
+  Tcl_Obj **argv;
+
+  if (Tcl_ListObjGetElements(interp, source, &argc, &argv) == TCL_OK) {
+    StdStringSet *set = new StdStringSet;
+    for (int i = 0; i < argc; i++) {
+      int length;
+      const char *str = Tcl_GetStringFromObj(argv[i], &length);
+      set->insert(str);
+    }
+    return set;
+  }
+  else
+    return nullptr;
+}
+
 ////////////////////////////////////////////////////////////////
 
-TmpPinSet *
+// Sequence out to tcl list.
+template <class SEQ_TYPE, class OBJECT_TYPE>
+void
+seqPtrTclList(SEQ_TYPE *seq,
+              swig_type_info *swig_type,
+              Tcl_Interp *interp)
+{
+  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
+  for (const OBJECT_TYPE *obj : *seq) {
+    Tcl_Obj *tcl_obj = SWIG_NewInstanceObj(const_cast<OBJECT_TYPE*>(obj),
+                                           swig_type, false);
+    Tcl_ListObjAppendElement(interp, list, tcl_obj);
+  }
+  Tcl_SetObjResult(interp, list);
+}
+
+template <class SEQ_TYPE, class OBJECT_TYPE>
+void
+seqTclList(SEQ_TYPE &seq,
+           swig_type_info *swig_type,
+           Tcl_Interp *interp)
+{
+  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
+  for (const OBJECT_TYPE *obj : seq) {
+    Tcl_Obj *tcl_obj = SWIG_NewInstanceObj(const_cast<OBJECT_TYPE*>(obj),
+                                           swig_type, false);
+    Tcl_ListObjAppendElement(interp, list, tcl_obj);
+  }
+  Tcl_SetObjResult(interp, list);
+}
+
+template <class SET_TYPE, class OBJECT_TYPE>
+void
+setTclList(SET_TYPE set,
+           swig_type_info *swig_type,
+           Tcl_Interp *interp)
+{
+  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
+  for (const OBJECT_TYPE *obj : set) {
+    Tcl_Obj *tcl_obj = SWIG_NewInstanceObj(const_cast<OBJECT_TYPE*>(obj),
+                                           swig_type, false);
+    Tcl_ListObjAppendElement(interp, list, tcl_obj);
+  }
+  Tcl_SetObjResult(interp, list);
+}
+
+template <class SET_TYPE, class OBJECT_TYPE>
+void
+setPtrTclList(SET_TYPE *set,
+              swig_type_info *swig_type,
+              Tcl_Interp *interp)
+{
+  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
+  for (const OBJECT_TYPE *obj : *set) {
+    Tcl_Obj *tcl_obj = SWIG_NewInstanceObj(const_cast<OBJECT_TYPE*>(obj),
+                                           swig_type, false);
+    Tcl_ListObjAppendElement(interp, list, tcl_obj);
+  }
+  Tcl_SetObjResult(interp, list);
+}
+
+////////////////////////////////////////////////////////////////
+
+PinSet
 findStartpoints()
 {
-  PinSet *pins = new PinSet;
+  Network *network = cmdNetwork();
+  PinSet pins(network);
   VertexPinCollector visitor(pins);
   Sta::sta()->visitStartpoints(&visitor);
   return pins;
 }
 
-TmpPinSet *
+PinSet
 findEndpoints()
 {
-  PinSet *pins = new PinSet;
+  Network *network = cmdNetwork();
+  PinSet pins(network);
   VertexPinCollector visitor(pins);
   Sta::sta()->visitEndpoints(&visitor);
   return pins;
-}
-
-void
-pushPowerResultFloats(PowerResult &power,
-		      TmpFloatSeq *floats)
-{
-  floats->push_back(power.internal());
-  floats->push_back(power.switching());
-  floats->push_back(power.leakage());
-  floats->push_back(power.total());
 }
 
 ////////////////////////////////////////////////////////////////
@@ -357,6 +425,13 @@ using namespace sta;
 ////////////////////////////////////////////////////////////////
 
 // String that is deleted after crossing over to tcland.
+%typemap(out) string {
+  string &str = $1;
+  // String is volatile because it is deleted.
+  Tcl_SetResult(interp, const_cast<char*>(str.c_str()), TCL_VOLATILE);
+}
+
+// String that is deleted after crossing over to tcland.
 %typemap(out) TmpString* {
   string *str = $1;
   if (str) {
@@ -372,29 +447,28 @@ using namespace sta;
   $1 = tclListSeqConstChar($input, interp);
 }
 
+%typemap(in) StdStringSet* {
+  $1 = tclListSetStdString($input, interp);
+}
+
 %typemap(out) StringSeq* {
   StringSeq *strs = $1;
   Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  StringSeq::Iterator str_iter(strs);
-  while (str_iter.hasNext()) {
-    const char *str = str_iter.next();
+  for (const char *str : *strs) {
     Tcl_Obj *obj = Tcl_NewStringObj(str, strlen(str));
     Tcl_ListObjAppendElement(interp, list, obj);
   }
   Tcl_SetObjResult(interp, list);
 }
 
-%typemap(out) TmpStringSeq* {
-  StringSeq *strs = $1;
+%typemap(out) StringSeq {
+  StringSeq &strs = $1;
   Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  StringSeq::Iterator str_iter(strs);
-  while (str_iter.hasNext()) {
-    const char *str = str_iter.next();
+  for (const char *str : strs) {
     Tcl_Obj *obj = Tcl_NewStringObj(str, strlen(str));
     Tcl_ListObjAppendElement(interp, list, obj);
   }
   Tcl_SetObjResult(interp, list);
-  delete strs;
 }
 
 %typemap(out) Library* {
@@ -417,64 +491,24 @@ using namespace sta;
   Tcl_SetObjResult(interp, obj);
 }
 
-%typemap(out) CellSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  CellSeq *cells = $1;
-  CellSeq::Iterator cell_iter(cells);
-  while (cell_iter.hasNext()) {
-    Cell *cell = cell_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(cell, SWIGTYPE_p_Cell, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  Tcl_SetObjResult(interp, list);
-}
-
 %typemap(in) CellSeq* {
   $1 = tclListSeq<Cell*>($input, SWIGTYPE_p_Cell, interp);
 }
 
-%typemap(out) TmpCellSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  CellSeq *cells = $1;
-  CellSeq::Iterator cell_iter(cells);
-  while (cell_iter.hasNext()) {
-    Cell *cell = cell_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(cell, SWIGTYPE_p_Cell, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  Tcl_SetObjResult(interp, list);
-  delete cells;
+%typemap(out) CellSeq {
+  seqTclList<CellSeq, Cell>($1, SWIGTYPE_p_Cell, interp);
 }
 
-%typemap(in) vector<LibertyCell*> * {
-  $1 = tclListSeqLibertyCell($input, interp);
+%typemap(out) LibertyCellSeq * {
+  seqPtrTclList<LibertyCellSeq, LibertyCell>($1, SWIGTYPE_p_LibertyCell, interp);
 }
 
-%typemap(out) LibertyCellSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  LibertyCellSeq *cells = $1;
-  LibertyCellSeq::Iterator cell_iter(cells);
-  while (cell_iter.hasNext()) {
-    LibertyCell *cell = cell_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(cell, SWIGTYPE_p_LibertyCell,
-				      false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  Tcl_SetObjResult(interp, list);
+%typemap(out) LibertyCellSeq {
+  seqTclList<LibertyCellSeq, LibertyCell>($1, SWIGTYPE_p_LibertyCell, interp);
 }
 
-%typemap(out) TmpLibertyCellSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  LibertyCellSeq *cells = $1;
-  LibertyCellSeq::Iterator cell_iter(cells);
-  while (cell_iter.hasNext()) {
-    LibertyCell *cell = cell_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(cell, SWIGTYPE_p_LibertyCell,
-				      false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  Tcl_SetObjResult(interp, list);
-  delete cells;
+%typemap(out) LibertyPortSeq {
+  seqTclList<LibertyPortSeq, LibertyPort>($1, SWIGTYPE_p_LibertyPort, interp);
 }
 
 %typemap(out) CellPortIterator* {
@@ -492,65 +526,12 @@ using namespace sta;
   Tcl_SetObjResult(interp, obj);
 }
 
-%typemap(in) PortSet* {
-  $1 = tclListSet<Port*>($input, SWIGTYPE_p_Port, interp);
-}
-
 %typemap(in) PortSeq* {
-  $1 = tclListSeq<Port*>($input, SWIGTYPE_p_Port, interp);
+  $1 = tclListSeq<const Port*>($input, SWIGTYPE_p_Port, interp);
 }
 
-%typemap(out) TmpPortSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  TmpPortSeq *ports = $1;
-  TmpPortSeq::Iterator port_iter(ports);
-  while (port_iter.hasNext()) {
-    Port *port = port_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(port, SWIGTYPE_p_Port, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete ports;
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(out) TmpLibertyPortSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  TmpLibertyPortSeq *ports = $1;
-  TmpLibertyPortSeq::Iterator port_iter(ports);
-  while (port_iter.hasNext()) {
-    LibertyPort *port = port_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(port, SWIGTYPE_p_LibertyPort,
-				      false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete ports;
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(out) TmpPinSet* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  PinSet *pins = $1;
-  PinSet::Iterator pin_iter(pins);
-  while (pin_iter.hasNext()) {
-    Pin *pin = pin_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(pin, SWIGTYPE_p_Pin, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete pins;
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(out) TmpPinSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  PinSeq *pins = $1;
-  PinSeq::Iterator pin_iter(pins);
-  while (pin_iter.hasNext()) {
-    Pin *pin = pin_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(pin, SWIGTYPE_p_Pin, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete pins;
-  Tcl_SetObjResult(interp, list);
+%typemap(out) PortSeq {
+  seqTclList<PortSeq, Port>($1, SWIGTYPE_p_Port, interp);
 }
 
 %typemap(out) PortMemberIterator* {
@@ -569,15 +550,21 @@ using namespace sta;
 }
 
 %typemap(out) LibertyPortMemberIterator* {
-  Tcl_Obj *obj = SWIG_NewInstanceObj($1,
-				    SWIGTYPE_p_LibertyPortMemberIterator,
-				    false);
+  Tcl_Obj *obj = SWIG_NewInstanceObj($1, SWIGTYPE_p_LibertyPortMemberIterator, false);
   Tcl_SetObjResult(interp, obj);
 }
 
 %typemap(out) TimingArc* {
   Tcl_Obj *obj = SWIG_NewInstanceObj($1, $1_descriptor, false);
   Tcl_SetObjResult(interp, obj);
+}
+
+%typemap(out) TimingArcSetSeq& {
+  seqPtrTclList<TimingArcSetSeq, TimingArcSet>($1, SWIGTYPE_p_TimingArcSet, interp);
+}
+
+%typemap(out) TimingArcSeq& {
+  seqPtrTclList<TimingArcSeq, TimingArc>($1, SWIGTYPE_p_TimingArc, interp);
 }
 
 %typemap(out) Wireload* {
@@ -614,13 +601,13 @@ using namespace sta;
 %typemap(in) RiseFall* {
   int length;
   const char *arg = Tcl_GetStringFromObj($input, &length);
-  RiseFall *tr = RiseFall::find(arg);
-  if (tr == nullptr) {
-    Tcl_SetResult(interp,const_cast<char*>("Error: unknown transition name."),
+  RiseFall *rf = RiseFall::find(arg);
+  if (rf == nullptr) {
+    Tcl_SetResult(interp,const_cast<char*>("Error: unknown rise/fall edge."),
 		  TCL_STATIC);
     return TCL_ERROR;
   }
-  $1 = tr;
+  $1 = rf;
 }
 
 %typemap(out) RiseFall* {
@@ -711,20 +698,11 @@ using namespace sta;
 }
 
 %typemap(in) InstanceSeq* {
-  $1 = tclListSeq<Instance*>($input, SWIGTYPE_p_Instance, interp);
+  $1 = tclListSeq<const Instance*>($input, SWIGTYPE_p_Instance, interp);
 }
 
-%typemap(out) TmpInstanceSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  TmpInstanceSeq *insts = $1;
-  TmpInstanceSeq::Iterator inst_iter(insts);
-  while (inst_iter.hasNext()) {
-    Instance *inst = inst_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(inst, SWIGTYPE_p_Instance,false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete insts;
-  Tcl_SetObjResult(interp, list);
+%typemap(out) InstanceSeq {
+  seqTclList<InstanceSeq, Instance>($1, SWIGTYPE_p_Instance, interp);
 }
 
 %typemap(out) InstanceChildIterator* {
@@ -753,16 +731,12 @@ using namespace sta;
 }
 
 %typemap(out) PinSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  PinSeq *pins = $1;
-  PinSeq::Iterator pin_iter(pins);
-  while (pin_iter.hasNext()) {
-    Pin *pin = pin_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(pin, SWIGTYPE_p_Pin, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete pins;
-  Tcl_SetObjResult(interp, list);
+  seqPtrTclList<PinSeq, Pin>($1, SWIGTYPE_p_Pin, interp);
+}
+
+
+%typemap(out) PinSeq {
+  seqTclList<PinSeq, Pin>($1, SWIGTYPE_p_Pin, interp);
 }
 
 %typemap(out) Net* {
@@ -771,16 +745,11 @@ using namespace sta;
 }
 
 %typemap(out) NetSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  NetSeq *nets = $1;
-  NetSeq::Iterator net_iter(nets);
-  while (net_iter.hasNext()) {
-    Net *net = net_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(net, SWIGTYPE_p_Net, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete nets;
-  Tcl_SetObjResult(interp, list);
+  seqPtrTclList<NetSeq, Net>($1, SWIGTYPE_p_Net, interp);
+}
+
+%typemap(out) NetSeq {
+  seqTclList<NetSeq, Net>($1, SWIGTYPE_p_Net, interp);
 }
 
 %typemap(out) NetPinIterator* {
@@ -809,26 +778,67 @@ using namespace sta;
 }
 
 %typemap(out) ClockSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  ClockSeq *clks = $1;
-  ClockSeq::Iterator clk_iter(clks);
-  while (clk_iter.hasNext()) {
-    Clock *clk = clk_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(clk, SWIGTYPE_p_Clock, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete clks;
-  Tcl_SetObjResult(interp, list);
+  seqPtrTclList<ClockSeq, Clock>($1, SWIGTYPE_p_Clock, interp);
 }
 
-%typemap(out) ClockIterator* {
-  Tcl_Obj *obj = SWIG_NewInstanceObj($1, $1_descriptor, false);
-  Tcl_SetObjResult(interp, obj);
+%typemap(out) ClockSeq {
+  seqTclList<ClockSeq, Clock>($1, SWIGTYPE_p_Clock, interp);
 }
 
 %typemap(out) ClockEdge* {
   Tcl_Obj *obj = SWIG_NewInstanceObj($1,$1_descriptor, false);
   Tcl_SetObjResult(interp, obj);
+}
+
+%typemap(in) PinSeq* {
+  $1 = tclListSeq<const Pin*>($input, SWIGTYPE_p_Pin, interp);
+}
+
+%typemap(in) PinSet* {
+  Network *network = cmdNetwork();
+  $1 = tclListNetworkSet<PinSet, Pin>($input, SWIGTYPE_p_Pin, interp, network);
+}
+
+%typemap(out) PinSet* {
+  setPtrTclList<PinSet, Pin>($1, SWIGTYPE_p_Pin, interp);
+}
+
+%typemap(out) PinSet {
+  setTclList<PinSet, Pin>($1, SWIGTYPE_p_Pin, interp);
+}
+
+%typemap(out) const PinSet& {
+  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
+  // A swig bug sets the result to PinSet* rather than const PinSet&.
+  PinSet *pins = $1;
+  for (const Pin *pin : *pins) {
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Pin*>(pin), SWIGTYPE_p_Pin, false);
+    Tcl_ListObjAppendElement(interp, list, obj);
+  }
+  Tcl_SetObjResult(interp, list);
+}
+
+%typemap(in) ClockSet* {
+  $1 = tclListSet<ClockSet, Clock>($input, SWIGTYPE_p_Clock, interp);
+}
+
+%typemap(out) ClockSet* {
+  setPtrTclList<ClockSet, Clock>($1, SWIGTYPE_p_Clock, interp);
+}
+
+%typemap(in) InstanceSet* {
+  Network *network = cmdNetwork();
+  $1 = tclListNetworkSet<InstanceSet, Instance>($input, SWIGTYPE_p_Instance,
+                                                interp, network);
+}
+
+%typemap(out) InstanceSet {
+  setTclList<InstanceSet, Instance>($1, SWIGTYPE_p_Instance, interp);
+}
+
+%typemap(in) NetSet* {
+  Network *network = cmdNetwork();
+  $1 = tclListNetworkSet<NetSet, Net>($input, SWIGTYPE_p_Net, interp, network);
 }
 
 %typemap(in) FloatSeq* {
@@ -858,23 +868,20 @@ using namespace sta;
   FloatSeq *floats = $1;
   Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
   if (floats) {
-    for (unsigned i = 0; i < floats->size(); i++) {
-      Tcl_Obj *obj = Tcl_NewDoubleObj((*floats)[i]);
+    for (float f : *floats) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
       Tcl_ListObjAppendElement(interp, list, obj);
     }
   }
   Tcl_SetObjResult(interp, list);
 }
 
-%typemap(out) TmpFloatSeq* {
-  FloatSeq *floats = $1;
+%typemap(out) FloatSeq {
+  FloatSeq &floats = $1;
   Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  if (floats) {
-    for (unsigned i = 0; i < floats->size(); i++) {
-      Tcl_Obj *obj = Tcl_NewDoubleObj((*floats)[i]);
-      Tcl_ListObjAppendElement(interp, list, obj);
-    }
-    delete floats;
+  for (float f : floats) {
+    Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+    Tcl_ListObjAppendElement(interp, list, obj);
   }
   Tcl_SetObjResult(interp, list);
 }
@@ -900,6 +907,46 @@ using namespace sta;
     }
   }
   $1 = ints;
+}
+
+%typemap(out) Table1 {
+  Table1 &table = $1;
+  if (table.axis1()) {
+    Tcl_Obj *list3 = Tcl_NewListObj(0, nullptr);
+    Tcl_Obj *list1 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table.axis1()->values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list1, obj);
+    }
+    Tcl_Obj *list2 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table.values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list2, obj);
+    }
+    Tcl_ListObjAppendElement(interp, list3, list1);
+    Tcl_ListObjAppendElement(interp, list3, list2);
+    Tcl_SetObjResult(interp, list3);
+  }
+}
+
+%typemap(out) const Table1* {
+  const Table1 *table = $1;
+  Tcl_Obj *list3 = Tcl_NewListObj(0, nullptr);
+  if (table) {
+    Tcl_Obj *list1 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table->axis1()->values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list1, obj);
+    }
+    Tcl_Obj *list2 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table->values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list2, obj);
+    }
+    Tcl_ListObjAppendElement(interp, list3, list1);
+    Tcl_ListObjAppendElement(interp, list3, list2);
+  }
+  Tcl_SetObjResult(interp, list3);
 }
 
 %typemap(in) MinMax* {
@@ -1094,96 +1141,6 @@ using namespace sta;
   }
 }
 
-%typemap(in) PinSeq* {
-  $1 = tclListSeq<Pin*>($input, SWIGTYPE_p_Pin, interp);
-}
-
-%typemap(in) PinSet* {
-  $1 = tclListSetPin($input, interp);
-}
-
-%typemap(out) PinSet* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  const PinSet *pins = $1;
-  if (pins) {
-    PinSet::ConstIterator pin_iter(pins);
-    while (pin_iter.hasNext()) {
-      Pin *pin = pin_iter.next();
-      Tcl_Obj *obj = SWIG_NewInstanceObj(pin, SWIGTYPE_p_Pin, false);
-      Tcl_ListObjAppendElement(interp, list, obj);
-    }
-  }
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(out) PinSet& {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  const PinSet *pins = $1;
-  if (pins) {
-    PinSet::ConstIterator pin_iter(pins);
-    while (pin_iter.hasNext()) {
-      Pin *pin = pin_iter.next();
-      Tcl_Obj *obj = SWIG_NewInstanceObj(pin, SWIGTYPE_p_Pin, false);
-      Tcl_ListObjAppendElement(interp, list, obj);
-    }
-  }
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(in) ClockSet* {
-  $1 = tclListSet<Clock*>($input, SWIGTYPE_p_Clock, interp);
-}
-
-%typemap(out) ClockSet* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  const ClockSet *clks = $1;
-  if (clks) {
-    ClockSet::ConstIterator clk_iter(clks);
-    while (clk_iter.hasNext()) {
-      Clock *clk = clk_iter.next();
-      Tcl_Obj *obj = SWIG_NewInstanceObj(clk, SWIGTYPE_p_Clock, false);
-      Tcl_ListObjAppendElement(interp, list, obj);
-    }
-  }
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(out) TmpClockSet* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  const ClockSet *clks = $1;
-  if (clks) {
-    ClockSet::ConstIterator clk_iter(clks);
-    while (clk_iter.hasNext()) {
-      Clock *clk = clk_iter.next();
-      Tcl_Obj *obj = SWIG_NewInstanceObj(clk, SWIGTYPE_p_Clock, false);
-      Tcl_ListObjAppendElement(interp, list, obj);
-    }
-    delete clks;
-  }
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(in) InstanceSet* {
-  $1 = tclListSet<Instance*>($input, SWIGTYPE_p_Instance, interp);
-}
-
-%typemap(out) TmpInstanceSet* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  InstanceSet *insts = $1;
-  InstanceSet::Iterator inst_iter(insts);
-  while (inst_iter.hasNext()) {
-    Instance *inst = inst_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(inst, SWIGTYPE_p_Instance,false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete insts;
-  Tcl_SetObjResult(interp, list);
-}
-
-%typemap(in) NetSet* {
-  $1 = tclListSet<Net*>($input, SWIGTYPE_p_Net, interp);
-}
-
 %typemap(in) ExceptionThruSeq* {
   $1 = tclListSeq<ExceptionThru*>($input, SWIGTYPE_p_ExceptionThru, interp);
 }
@@ -1205,26 +1162,17 @@ using namespace sta;
   Tcl_SetObjResult(interp, list);
 }
 
-%typemap(in) EdgeSeq* {
-  $1 = tclListSeq<Edge*>($input, SWIGTYPE_p_Edge, interp);
-}
-
 %typemap(out) Edge* {
   Tcl_Obj *obj = SWIG_NewInstanceObj($1, $1_descriptor, false);
   Tcl_SetObjResult(interp, obj);
 }
 
-%typemap(out) EdgeSeq* {
-  Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-  EdgeSeq *edges = $1;
-  EdgeSeq::Iterator edge_iter(edges);
-  while (edge_iter.hasNext()) {
-    Edge *edge = edge_iter.next();
-    Tcl_Obj *obj = SWIG_NewInstanceObj(edge, SWIGTYPE_p_Edge, false);
-    Tcl_ListObjAppendElement(interp, list, obj);
-  }
-  delete edges;
-  Tcl_SetObjResult(interp, list);
+%typemap(in) EdgeSeq* {
+  $1 = tclListSeq<Edge*>($input, SWIGTYPE_p_Edge, interp);
+}
+
+%typemap(out) EdgeSeq {
+  seqTclList<EdgeSeq, Edge>($1, SWIGTYPE_p_Edge, interp);
 }
 
 %typemap(out) VertexIterator* {
@@ -1239,16 +1187,6 @@ using namespace sta;
 
 %typemap(out) VertexOutEdgeIterator* {
   Tcl_Obj *obj = SWIG_NewInstanceObj($1, $1_descriptor, false);
-  Tcl_SetObjResult(interp, obj);
-}
-
-%typemap(out) TimingArcSetArcIterator* {
-  Tcl_Obj *obj=SWIG_NewInstanceObj($1, $1_descriptor, false);
-  Tcl_SetObjResult(interp, obj);
-}
-
-%typemap(out) LibertyCellTimingArcSetIterator* {
-  Tcl_Obj *obj=SWIG_NewInstanceObj($1, $1_descriptor, false);
   Tcl_SetObjResult(interp, obj);
 }
 
@@ -1289,6 +1227,10 @@ using namespace sta;
   // Delete the PathEndSeq, not the ends.
   delete path_ends;
   Tcl_SetObjResult(interp, list);
+}
+
+%typemap(out) PathEndSeq {
+  seqTclList<PathEndSeq, PathEnd>($1, SWIGTYPE_p_PathEnd, interp);
 }
 
 %typemap(out) MinPulseWidthCheckSeqIterator* {
@@ -1425,9 +1367,9 @@ using namespace sta;
     Tcl_SetResult(interp, const_cast<char*>(value.stringValue()), TCL_VOLATILE);
     break;
   case PropertyValue::Type::type_float: {
-    char *float_string = stringPrint("%.6e", value.floatValue());
-    Tcl_SetResult(interp, float_string, TCL_VOLATILE);
-    stringDelete(float_string);
+    const Unit *unit = value.unit();
+    const char *float_string = unit->asString(value.floatValue(), 6);
+    Tcl_SetResult(interp, const_cast<char*>(float_string), TCL_VOLATILE);
   }
     break;
   case PropertyValue::Type::type_bool: {
@@ -1436,49 +1378,50 @@ using namespace sta;
   }
     break;
   case PropertyValue::Type::type_library: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.library(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Library*>(value.library()),
 				       SWIGTYPE_p_Library, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_cell: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.cell(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Cell*>(value.cell()),
 				       SWIGTYPE_p_Cell, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_port: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.port(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Port*>(value.port()),
 				       SWIGTYPE_p_Port, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_liberty_library: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.libertyLibrary(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<LibertyLibrary*>(value.libertyLibrary()),
 				       SWIGTYPE_p_LibertyLibrary, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_liberty_cell: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.libertyCell(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<LibertyCell*>(value.libertyCell()),
 				       SWIGTYPE_p_LibertyCell, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_liberty_port: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.libertyPort(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<LibertyPort*>(value.libertyPort()),
 				       SWIGTYPE_p_LibertyPort, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_instance: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.instance(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Instance*>(value.instance()),
 				       SWIGTYPE_p_Instance, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_pin: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.pin(), SWIGTYPE_p_Pin, false);
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Pin*>(value.pin()),
+                                       SWIGTYPE_p_Pin, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
@@ -1487,21 +1430,21 @@ using namespace sta;
     PinSeq *pins = value.pins();
     PinSeq::Iterator pin_iter(pins);
     while (pin_iter.hasNext()) {
-      Pin *pin = pin_iter.next();
-      Tcl_Obj *obj = SWIG_NewInstanceObj(pin, SWIGTYPE_p_Pin, false);
+      const Pin *pin = pin_iter.next();
+      Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Pin*>(pin), SWIGTYPE_p_Pin, false);
       Tcl_ListObjAppendElement(interp, list, obj);
     }
     Tcl_SetObjResult(interp, list);
   }
     break;
   case PropertyValue::Type::type_net: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.net(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Net*>(value.net()),
 				       SWIGTYPE_p_Net, false);
     Tcl_SetObjResult(interp, obj);
   }
     break;
   case PropertyValue::Type::type_clk: {
-    Tcl_Obj *obj = SWIG_NewInstanceObj(value.clock(),
+    Tcl_Obj *obj = SWIG_NewInstanceObj(const_cast<Clock*>(value.clock()),
 				       SWIGTYPE_p_Clock, false);
     Tcl_SetObjResult(interp, obj);
   }
@@ -1520,10 +1463,7 @@ using namespace sta;
     break;
   case PropertyValue::Type::type_path_refs: {
     Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
-    PathRefSeq *paths = value.pathRefs();
-    PathRefSeq::Iterator path_iter(paths);
-    while (path_iter.hasNext()) {
-      PathRef &path = path_iter.next();
+    for (PathRef &path : *value.pathRefs()) {
       PathRef *copy = new PathRef(path);
       Tcl_Obj *obj = SWIG_NewInstanceObj(copy, SWIGTYPE_p_PathRef, false);
       Tcl_ListObjAppendElement(interp, list, obj);
@@ -1653,20 +1593,6 @@ private:
   ~TimingArcSet();
 };
 
-class LibertyCellTimingArcSetIterator
-{
-private:
-  LibertyCellTimingArcSetIterator();
-  ~LibertyCellTimingArcSetIterator();
-};
-
-class TimingArcSetArcIterator
-{
-private:
-  TimingArcSetArcIterator();
-  ~TimingArcSetArcIterator();
-};
-
 class TimingArc
 {
 private:
@@ -1784,13 +1710,6 @@ class Clock
 private:
   Clock();
   ~Clock();
-};
-
-class ClockIterator
-{
-private:
-  ClockIterator();
-  ~ClockIterator();
 };
 
 class ClockEdge
@@ -1981,8 +1900,12 @@ report_file_warn(int id,
 void
 report_line(const char *msg)
 {
-  Report *report = Sta::sta()->report();
-  report->reportLineString(msg);
+  Sta *sta = Sta::sta();
+  if (sta)
+    sta->report()->reportLineString(msg);
+  else
+    // After sta::delete_all_memory souce -echo prints the cmd file line
+    printf("%s\n", msg);
 }
 
 void
@@ -2179,6 +2102,13 @@ set_min_library_cmd(char *min_filename,
   return Sta::sta()->setMinLibrary(min_filename, max_filename);
 }
 
+void
+write_liberty_cmd(LibertyLibrary *library,
+                  char *filename)
+{
+  writeLiberty(library, filename, Sta::sta());
+}
+
 Library *
 find_library(const char *name)
 {
@@ -2209,21 +2139,23 @@ find_liberty_cell(const char *name)
   return cmdNetwork()->findLibertyCell(name);
 }
 
-TmpCellSeq *
+CellSeq
 find_cells_matching(const char *pattern,
 		    bool regexp,
 		    bool nocase)
 {
   Network *network = cmdNetwork();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  TmpCellSeq *cells = new TmpCellSeq;
+  CellSeq matches;
   LibraryIterator *lib_iter = network->libraryIterator();
   while (lib_iter->hasNext()) {
     Library *lib = lib_iter->next();
-    network->findCellsMatching(lib, &matcher, cells);
+    CellSeq lib_matches = network->findCellsMatching(lib, &matcher);
+    for (Cell *match : lib_matches)
+      matches.push_back(match);
   }
   delete lib_iter;
-  return cells;
+  return matches;
 }
 
 LibertyCellSeq *
@@ -2320,7 +2252,7 @@ pin_direction(const Pin *pin)
   return cmdLinkedNetwork()->direction(pin)->name();
 }
 
-TmpPortSeq *
+PortSeq
 find_ports_matching(const char *pattern,
 		    bool regexp,
 		    bool nocase)
@@ -2328,43 +2260,37 @@ find_ports_matching(const char *pattern,
   Network *network = cmdLinkedNetwork();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
   Cell *top_cell = network->cell(network->topInstance());
-  PortSeq ports1;
-  network->findPortsMatching(top_cell, &matcher, &ports1);
+  PortSeq matches1 = network->findPortsMatching(top_cell, &matcher);
   // Expand bus/bundle ports.
-  TmpPortSeq *ports = new TmpPortSeq;
-  PortSeq::Iterator port_iter(ports1);
-  while (port_iter.hasNext()) {
-    Port *port = port_iter.next();
+  PortSeq matches;
+  for (const Port *port : matches1) {
     if (network->isBus(port)
 	|| network->isBundle(port)) {
       PortMemberIterator *member_iter = network->memberIterator(port);
       while (member_iter->hasNext()) {
 	Port *member = member_iter->next();
-	ports->push_back(member);
+	matches.push_back(member);
       }
       delete member_iter;
     }
     else
-      ports->push_back(port);
+      matches.push_back(port);
   }
-  return ports;
+  return matches;
 }
 
-TmpPinSeq *
+PinSeq
 find_port_pins_matching(const char *pattern,
 			bool regexp,
 			bool nocase)
 {
   Network *network = cmdLinkedNetwork();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  PortSeq ports;
   Instance *top_inst = network->topInstance();
   Cell *top_cell = network->cell(top_inst);
-  network->findPortsMatching(top_cell, &matcher, &ports);
-  TmpPinSeq *pins = new TmpPinSeq;
-  PortSeq::Iterator port_iter(ports);
-  while (port_iter.hasNext()) {
-    Port *port = port_iter.next();
+  PortSeq ports = network->findPortsMatching(top_cell, &matcher);
+  PinSeq pins;
+  for (const Port *port : ports) {
     if (network->isBus(port)
 	|| network->isBundle(port)) {
       PortMemberIterator *member_iter = network->memberIterator(port);
@@ -2372,14 +2298,14 @@ find_port_pins_matching(const char *pattern,
 	Port *member = member_iter->next();
 	Pin *pin = network->findPin(top_inst, member);
 	if (pin)
-	  pins->push_back(pin);
+	  pins.push_back(pin);
       }
       delete member_iter;
     }
     else {
       Pin *pin = network->findPin(top_inst, port);
       if (pin)
-	pins->push_back(pin);
+	pins.push_back(pin);
     }
   }
   return pins;
@@ -2391,7 +2317,14 @@ find_pin(const char *path_name)
   return cmdLinkedNetwork()->findPin(path_name);
 }
 
-TmpPinSeq *
+Pin *
+get_port_pin(const Port *port)
+{
+  Network *network = cmdLinkedNetwork();
+  return network->findPin(network->topInstance(), port);
+}
+
+PinSeq
 find_pins_matching(const char *pattern,
 		   bool regexp,
 		   bool nocase)
@@ -2400,12 +2333,11 @@ find_pins_matching(const char *pattern,
   Network *network = cmdLinkedNetwork();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
   Instance *current_instance = sta->currentInstance();
-  TmpPinSeq *pins = new TmpPinSeq;
-  network->findPinsMatching(current_instance, &matcher, pins);
-  return pins;
+  PinSeq matches = network->findPinsMatching(current_instance, &matcher);
+  return matches;
 }
 
-TmpPinSeq *
+PinSeq
 find_pins_hier_matching(const char *pattern,
 			bool regexp,
 			bool nocase)
@@ -2414,12 +2346,11 @@ find_pins_hier_matching(const char *pattern,
   Network *network = cmdLinkedNetwork();
   Instance *current_instance = sta->currentInstance();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  TmpPinSeq *pins = new TmpPinSeq;
-  network->findPinsHierMatching(current_instance, &matcher, pins);
-  return pins;
+  PinSeq matches = network->findPinsHierMatching(current_instance, &matcher);
+  return matches;
 }
 
-TmpPinSeq *
+PinSeq
 find_pins_matching_icb(const char *pattern,
 			bool regexp,
 			bool nocase)
@@ -2430,11 +2361,12 @@ find_pins_matching_icb(const char *pattern,
   std::vector<std::string> results;
   sta->icbNamematch(pattern, results);
 
-  TmpPinSeq *pins = new TmpPinSeq;
+  PinSeq pins;
   for (size_t i = 0; i < results.size(); ++i) {
     Instance *current_instance = sta->currentInstance();
     PatternMatch matcher(results[i].c_str(), regexp, nocase, Sta::sta()->tclInterp());  
-    network->findPinsHierMatching(current_instance, &matcher, pins);
+    PinSeq tmp = network->findPinsHierMatching(current_instance, &matcher);
+    pins.insert(pins.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
   }
   return pins;
 }
@@ -2445,20 +2377,20 @@ find_instance(char *path_name)
   return cmdLinkedNetwork()->findInstance(path_name);
 }
 
-TmpInstanceSeq *
+InstanceSeq
 network_leaf_instances()
 {
-  InstanceSeq *insts = new InstanceSeq;
+  InstanceSeq insts;
   LeafInstanceIterator *iter = cmdLinkedNetwork()->leafInstanceIterator();
   while (iter->hasNext()) {
-    Instance *inst = iter->next();
-    insts->push_back(inst);
+    const Instance *inst = iter->next();
+    insts.push_back(inst);
   }
   delete iter;
   return insts;
 }
 
-TmpInstanceSeq *
+InstanceSeq
 find_instances_matching_icb(const char *pattern,
 			bool regexp,
 			bool nocase)
@@ -2467,16 +2399,17 @@ find_instances_matching_icb(const char *pattern,
   std::vector<std::string> results;
   sta->icbNamematch(pattern, results);
   
-  TmpInstanceSeq *insts = new InstanceSeq;
+  InstanceSeq matches;
   for (size_t i = 0; i < results.size(); ++i) {
     Instance *current_instance = sta->currentInstance();
     PatternMatch matcher(results[i].c_str(), regexp, nocase, sta->tclInterp());
-    cmdLinkedNetwork()->findInstancesMatching(current_instance, &matcher, insts);
+    InstanceSeq tmp = cmdLinkedNetwork()->findInstancesMatching(current_instance, &matcher);
+    matches.insert(matches.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
   }
-  return insts;
+  return matches;
 }
 
-TmpInstanceSeq *
+InstanceSeq
 find_instances_matching(const char *pattern,
 			bool regexp,
 			bool nocase)
@@ -2484,12 +2417,12 @@ find_instances_matching(const char *pattern,
   Sta *sta = Sta::sta();
   Instance *current_instance = sta->currentInstance();
   PatternMatch matcher(pattern, regexp, nocase, sta->tclInterp());
-  TmpInstanceSeq *insts = new InstanceSeq;
-  cmdLinkedNetwork()->findInstancesMatching(current_instance, &matcher, insts);
-  return insts;
+  Network *network = cmdLinkedNetwork();
+  InstanceSeq matches = network->findInstancesMatching(current_instance, &matcher);
+  return matches;
 }
 
-TmpInstanceSeq *
+InstanceSeq
 find_instances_hier_matching(const char *pattern,
 			     bool regexp,
 			     bool nocase)
@@ -2498,73 +2431,72 @@ find_instances_hier_matching(const char *pattern,
   Network *network = cmdLinkedNetwork();
   Instance *current_instance = sta->currentInstance();
   PatternMatch matcher(pattern, regexp, nocase, sta->tclInterp());
-  TmpInstanceSeq *insts = new InstanceSeq;
-  network->findInstancesHierMatching(current_instance, &matcher, insts);
-  return insts;
+  InstanceSeq matches = network->findInstancesHierMatching(current_instance, &matcher);
+  return matches;
 }
 
-TmpInstanceSet *
+InstanceSet
 find_register_instances(ClockSet *clks,
 			const RiseFallBoth *clk_tr,
 			bool edge_triggered,
 			bool latches)
 {
   cmdLinkedNetwork();
-  InstanceSet *insts = Sta::sta()->findRegisterInstances(clks, clk_tr,
-							 edge_triggered,
-							 latches);
+  InstanceSet insts = Sta::sta()->findRegisterInstances(clks, clk_tr,
+                                                        edge_triggered,
+                                                        latches);
   delete clks;
   return insts;
 }
 
-TmpPinSet *
+PinSet
 find_register_data_pins(ClockSet *clks,
 			const RiseFallBoth *clk_tr,
 			bool edge_triggered,
 			bool latches)
 {
   cmdLinkedNetwork();
-  PinSet *pins = Sta::sta()->findRegisterDataPins(clks, clk_tr,
-						  edge_triggered, latches);
+  PinSet pins = Sta::sta()->findRegisterDataPins(clks, clk_tr,
+                                                 edge_triggered, latches);
   delete clks;
   return pins;
 }
 
-TmpPinSet *
+PinSet
 find_register_clk_pins(ClockSet *clks,
 		       const RiseFallBoth *clk_tr,
 		       bool edge_triggered,
 		       bool latches)
 {
   cmdLinkedNetwork();
-  PinSet *pins = Sta::sta()->findRegisterClkPins(clks, clk_tr,
-						 edge_triggered, latches);
+  PinSet pins = Sta::sta()->findRegisterClkPins(clks, clk_tr,
+                                                edge_triggered, latches);
   delete clks;
   return pins;
 }
 
-TmpPinSet *
+PinSet
 find_register_async_pins(ClockSet *clks,
 			 const RiseFallBoth *clk_tr,
 			 bool edge_triggered,
 			 bool latches)
 {
   cmdLinkedNetwork();
-  PinSet *pins = Sta::sta()->findRegisterAsyncPins(clks, clk_tr,
-						   edge_triggered, latches);
+  PinSet pins = Sta::sta()->findRegisterAsyncPins(clks, clk_tr,
+                                                  edge_triggered, latches);
   delete clks;
   return pins;
 }
 
-TmpPinSet *
+PinSet
 find_register_output_pins(ClockSet *clks,
 			  const RiseFallBoth *clk_tr,
 			  bool edge_triggered,
 			  bool latches)
 {
   cmdLinkedNetwork();
-  PinSet *pins = Sta::sta()->findRegisterOutputPins(clks, clk_tr,
-						    edge_triggered, latches);
+  PinSet pins = Sta::sta()->findRegisterOutputPins(clks, clk_tr,
+                                                   edge_triggered, latches);
   delete clks;
   return pins;
 }
@@ -2575,7 +2507,7 @@ find_net(char *path_name)
   return cmdLinkedNetwork()->findNet(path_name);
 }
 
-NetSeq *
+NetSeq
 find_nets_matching(const char *pattern,
 		   bool regexp,
 		   bool nocase)
@@ -2583,12 +2515,11 @@ find_nets_matching(const char *pattern,
   Network *network = cmdLinkedNetwork();
   Instance *current_instance = Sta::sta()->currentInstance();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  NetSeq *nets = new NetSeq;
-  network->findNetsMatching(current_instance, &matcher, nets);
-  return nets;
+  NetSeq matches = network->findNetsMatching(current_instance, &matcher);
+  return matches;
 }
 
-NetSeq *
+NetSeq
 find_nets_hier_matching(const char *pattern,
 			bool regexp,
 			bool nocase)
@@ -2596,78 +2527,86 @@ find_nets_hier_matching(const char *pattern,
   Network *network = cmdLinkedNetwork();
   Instance *current_instance = Sta::sta()->currentInstance();
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  NetSeq *nets = new NetSeq;
-  network->findNetsHierMatching(current_instance, &matcher, nets);
-  return nets;
+  NetSeq matches = network->findNetsHierMatching(current_instance, &matcher);
+  return matches;
 }
 
-TmpPortSeq *
+PortSeq
 filter_ports(const char *property,
 	     const char *op,
 	     const char *pattern,
 	     PortSeq *ports)
 {
-  Sta *sta = Sta::sta();
-  TmpPortSeq *filtered_ports = new TmpPortSeq;
-  PortSeq::Iterator port_iter(ports);
-  bool exact_match = stringEq(op, "==");
-  while (port_iter.hasNext()) {
-    Port *port = port_iter.next();
-    PropertyValue value(getProperty(port, property, sta));
-    const char *prop = value.stringValue();
-    if (prop &&
-	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_ports->push_back(port);
+  PortSeq filtered_ports;
+  if (ports) {
+    Sta *sta = Sta::sta();
+    bool exact_match = stringEq(op, "==");
+    bool pattern_match = stringEq(op, "=~");
+    bool not_match = stringEq(op, "!=");
+    for (const Port *port : *ports) {
+      PropertyValue value(getProperty(port, property, sta));
+      const char *prop = value.stringValue();
+      if (prop &&
+          ((exact_match && stringEq(prop, pattern))
+           || (not_match && !stringEq(prop, pattern))
+           || (pattern_match && patternMatch(pattern, prop))))
+        filtered_ports.push_back(port);
+    }
+    delete ports;
   }
-  delete ports;
   return filtered_ports;
 }
 
-TmpInstanceSeq *
+InstanceSeq
 filter_insts(const char *property,
 	     const char *op,
 	     const char *pattern,
 	     InstanceSeq *insts)
 {
-  Sta *sta = Sta::sta();
-  cmdLinkedNetwork();
-  TmpInstanceSeq *filtered_insts = new TmpInstanceSeq;
-  TmpInstanceSeq::Iterator inst_iter(insts);
-  bool exact_match = stringEq(op, "==");
-  while (inst_iter.hasNext()) {
-    Instance *inst = inst_iter.next();
-    PropertyValue value(getProperty(inst, property, sta));
-    const char *prop = value.stringValue();
-    if (prop &&
-	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_insts->push_back(inst);
+  InstanceSeq filtered_insts;
+  if (insts) {
+    Sta *sta = Sta::sta();
+    cmdLinkedNetwork();
+    bool exact_match = stringEq(op, "==");
+    bool pattern_match = stringEq(op, "=~");
+    bool not_match = stringEq(op, "!=");
+    for (const Instance *inst : *insts) {
+      PropertyValue value(getProperty(inst, property, sta));
+      const char *prop = value.stringValue();
+      if (prop &&
+          ((exact_match && stringEq(prop, pattern))
+           || (not_match && !stringEq(prop, pattern))
+           || (pattern_match && patternMatch(pattern, prop))))
+        filtered_insts.push_back(inst);
+    }
+    delete insts;
   }
-  delete insts;
   return filtered_insts;
 }
 
-PinSeq *
+PinSeq
 filter_pins(const char *property,
 	    const char *op,
 	    const char *pattern,
 	    PinSeq *pins)
 {
-  Sta *sta = Sta::sta();
-  PinSeq *filtered_pins = new PinSeq;
-  PinSeq::Iterator pin_iter(pins);
-  bool exact_match = stringEq(op, "==");
-  while (pin_iter.hasNext()) {
-    Pin *pin = pin_iter.next();
-    PropertyValue value(getProperty(pin, property, sta));
-    const char *prop = value.stringValue();
-    if (prop &&
-	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_pins->push_back(pin);
+  PinSeq filtered_pins;
+  if (pins) {
+    Sta *sta = Sta::sta();
+    bool exact_match = stringEq(op, "==");
+    bool pattern_match = stringEq(op, "=~");
+    bool not_match = stringEq(op, "!=");
+    for (const Pin *pin : *pins) {
+      PropertyValue value(getProperty(pin, property, sta));
+      const char *prop = value.stringValue();
+      if (prop &&
+          ((exact_match && stringEq(prop, pattern))
+           || (not_match && !stringEq(prop, pattern))
+           || (pattern_match && patternMatch(pattern, prop))))
+        filtered_pins.push_back(pin);
+    }
+    delete pins;
   }
-  delete pins;
   return filtered_pins;
 }
 
@@ -2856,24 +2795,25 @@ set_operating_conditions_cmd(OperatingConditions *op_cond,
   Sta::sta()->setOperatingConditions(op_cond, min_max);
 }
 
-EdgeSeq *
+EdgeSeq
 filter_timing_arcs(const char *property,
 		   const char *op,
 		   const char *pattern,
 		   EdgeSeq *edges)
 {
   Sta *sta = Sta::sta();
-  EdgeSeq *filtered_edges = new EdgeSeq;
-  EdgeSeq::Iterator edge_iter(edges);
+  EdgeSeq filtered_edges;
   bool exact_match = stringEq(op, "==");
-  while (edge_iter.hasNext()) {
-    Edge *edge = edge_iter.next();
+  bool pattern_match = stringEq(op, "=~");
+  bool not_match = stringEq(op, "!=");
+  for (Edge *edge : *edges) {
     PropertyValue value(getProperty(edge, property, sta));
     const char *prop = value.stringValue();
     if (prop &&
 	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_edges->push_back(edge);
+         || (not_match && !stringEq(prop, pattern))
+	 || (pattern_match && patternMatch(pattern, prop))))
+      filtered_edges.push_back(edge);
   }
   delete edges;
   return filtered_edges;
@@ -2902,74 +2842,80 @@ set_instance_pvt(Instance *inst,
 		 float temperature)
 {
   cmdLinkedNetwork();
-  Pvt *pvt = new Pvt(process, voltage, temperature);
+  Pvt pvt(process, voltage, temperature);
   Sta::sta()->setPvt(inst, min_max, pvt);
 }
 
 float
-port_ext_pin_cap(Port *port,
+port_ext_pin_cap(const Port *port,
+                 const Corner *corner,
 		 const MinMax *min_max)
 {
   cmdLinkedNetwork();
   float pin_cap, wire_cap;
   int fanout;
-  Sta::sta()->portExtCaps(port, min_max, pin_cap, wire_cap, fanout);
+  Sta::sta()->portExtCaps(port, corner, min_max, pin_cap, wire_cap, fanout);
   return pin_cap;
 }
 
 void
-set_port_pin_cap(Port *port,
-		 const RiseFallBoth *rf,
-		 const MinMaxAll *min_max,
-		 float cap)
+set_port_ext_pin_cap(const Port *port,
+                     const RiseFallBoth *rf,
+                     const Corner *corner,
+                     const MinMaxAll *min_max,
+                     float cap)
 {
-  Sta::sta()->setPortExtPinCap(port, rf, min_max, cap);
+  Sta::sta()->setPortExtPinCap(port, rf, corner, min_max, cap);
 }
 
 float
-port_ext_wire_cap(Port *port,
+port_ext_wire_cap(const Port *port,
+                  const Corner *corner,
                   const MinMax *min_max)
 {
   cmdLinkedNetwork();
   float pin_cap, wire_cap;
   int fanout;
-  Sta::sta()->portExtCaps(port, min_max, pin_cap, wire_cap, fanout);
+  Sta::sta()->portExtCaps(port, corner, min_max, pin_cap, wire_cap, fanout);
   return wire_cap;
 }
 
 void
-set_port_wire_cap(Port *port,
-		  bool subtract_pin_cap,
-		  const RiseFallBoth *rf,
-		  const MinMaxAll *min_max,
-		  float cap)
+set_port_ext_wire_cap(const Port *port,
+                      bool subtract_pin_cap,
+                      const RiseFallBoth *rf,
+                      const Corner *corner,
+                      const MinMaxAll *min_max,
+                      float cap)
 {
-  Sta::sta()->setPortExtWireCap(port, subtract_pin_cap, rf, min_max, cap);
+  Sta::sta()->setPortExtWireCap(port, subtract_pin_cap, rf, corner, min_max, cap);
 }
 
 void
-set_port_ext_fanout_cmd(Port *port,
+set_port_ext_fanout_cmd(const Port *port,
 			int fanout,
+                        const Corner *corner,
 			const MinMaxAll *min_max)
 {
-  Sta::sta()->setPortExtFanout(port, fanout, min_max);
+  Sta::sta()->setPortExtFanout(port, fanout, corner, min_max);
 }
 
 float
-port_ext_fanout(Port *port,
+port_ext_fanout(const Port *port,
+                const Corner *corner,
                 const MinMax *min_max)
 {
   cmdLinkedNetwork();
   float pin_cap, wire_cap;
   int fanout;
-  Sta::sta()->portExtCaps(port, min_max, pin_cap, wire_cap, fanout);
+  Sta::sta()->portExtCaps(port, corner, min_max, pin_cap, wire_cap, fanout);
   return fanout;
 }
 
 void
-set_net_wire_cap(Net *net,
+set_net_wire_cap(const Net *net,
 		 bool subtract_pin_cap,
-		 Corner *corner,
+		 const Corner *corner,
 		 const MinMaxAll *min_max,
 		 float cap)
 {
@@ -3026,8 +2972,6 @@ make_generated_clock(const char *name,
 		     bool add_to_pins,
 		     Pin *src_pin,
 		     Clock *master_clk,
-		     Pin *pll_out,
-		     Pin *pll_fdbk,
 		     int divide_by,
 		     int multiply_by,
 		     float duty_cycle,
@@ -3039,7 +2983,7 @@ make_generated_clock(const char *name,
 {
   cmdLinkedNetwork();
   Sta::sta()->makeGeneratedClock(name, pins, add_to_pins,
-				 src_pin, master_clk, pll_out, pll_fdbk,
+				 src_pin, master_clk,
 				 divide_by, multiply_by, duty_cycle, invert,
 				 combinational, edges, edge_shifts,
 				 comment);
@@ -3817,12 +3761,6 @@ unset_timing_derate_cmd()
   Sta::sta()->unsetTimingDerate();
 }
 
-ClockIterator *
-clock_iterator()
-{
-  return new ClockIterator(Sta::sta()->sdc());
-}
-
 Clock *
 find_clock(const char *name)
 {
@@ -3842,18 +3780,16 @@ default_arrival_clock()
   return Sta::sta()->sdc()->defaultArrivalClock();
 }
 
-ClockSeq *
+ClockSeq
 find_clocks_matching(const char *pattern,
 		     bool regexp,
 		     bool nocase)
 {
   cmdLinkedNetwork();
-  ClockSeq *clks = new ClockSeq;
   Sta *sta = Sta::sta();
   Sdc *sdc = sta->sdc();
   PatternMatch matcher(pattern, regexp, nocase, sta->tclInterp());
-  sdc->findClocksMatching(&matcher, clks);
-  return clks;
+  return sdc->findClocksMatching(&matcher);
 }
 
 void
@@ -3934,6 +3870,14 @@ format_voltage(const char *value,
 }
 
 const char *
+format_current(const char *value,
+	       int digits)
+{
+  float value1 = strtof(value, nullptr);
+  return Sta::sta()->units()->currentUnit()->asString(value1, digits);
+}
+
+const char *
 format_power(const char *value,
 	     int digits)
 {
@@ -3961,89 +3905,91 @@ format_area(const char *value,
 
 ////////////////////////////////////////////////////////////////
 
-// Unit converstion from sta unit to user interface and visa versa.
+// <unit>_sta_ui conversion from sta units to user interface units.
+// <unit>_ui_sta conversion from user interface units to sta units.
+
 double
 time_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->timeUnit()->scale();
+  return Sta::sta()->units()->timeUnit()->userToSta(value);
 }
 
 double
 time_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->timeUnit()->scale();
+  return Sta::sta()->units()->timeUnit()->staToUser(value);
 }
 
 double
 capacitance_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->capacitanceUnit()->scale();
+  return Sta::sta()->units()->capacitanceUnit()->userToSta(value);
 }
 
 double
 capacitance_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->capacitanceUnit()->scale();
+  return Sta::sta()->units()->capacitanceUnit()->staToUser(value);
 }
 
 double
 resistance_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->resistanceUnit()->scale();
+  return Sta::sta()->units()->resistanceUnit()->userToSta(value);
 }
 
 double
 resistance_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->resistanceUnit()->scale();
+  return Sta::sta()->units()->resistanceUnit()->staToUser(value);
 }
 
 double
 voltage_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->voltageUnit()->scale();
+  return Sta::sta()->units()->voltageUnit()->userToSta(value);
 }
 
 double
 voltage_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->voltageUnit()->scale();
+  return Sta::sta()->units()->voltageUnit()->staToUser(value);
 }
 
 double
 current_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->currentUnit()->scale();
+  return Sta::sta()->units()->currentUnit()->userToSta(value);
 }
 
 double
 current_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->currentUnit()->scale();
+  return Sta::sta()->units()->currentUnit()->staToUser(value);
 }
 
 double
 power_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->powerUnit()->scale();
+  return Sta::sta()->units()->powerUnit()->userToSta(value);
 }
 
 double
 power_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->powerUnit()->scale();
+  return Sta::sta()->units()->powerUnit()->staToUser(value);
 }
 
 double
 distance_ui_sta(double value)
 {
-  return value * Sta::sta()->units()->distanceUnit()->scale();
+  return Sta::sta()->units()->distanceUnit()->userToSta(value);
 }
 
 double
 distance_sta_ui(double value)
 {
-  return value / Sta::sta()->units()->distanceUnit()->scale();
+  return Sta::sta()->units()->distanceUnit()->staToUser(value);
 }
 
 double
@@ -4091,11 +4037,11 @@ set_cmd_unit_suffix(const char *unit_name,
 }
 
 const char *
-unit_scale_abreviation(const char *unit_name)
+unit_scale_abbreviation (const char *unit_name)
 {
   Unit *unit = Sta::sta()->units()->find(unit_name);
   if (unit)
-    return unit->scaleAbreviation();
+    return unit->scaleAbbreviation();
   else
     return "";
 }
@@ -4106,6 +4052,16 @@ unit_suffix(const char *unit_name)
   Unit *unit = Sta::sta()->units()->find(unit_name);
   if (unit)
     return unit->suffix();
+  else
+    return "";
+}
+
+const char *
+unit_scaled_suffix(const char *unit_name)
+{
+  Unit *unit = Sta::sta()->units()->find(unit_name);
+  if (unit)
+    return unit->scaledSuffix();
   else
     return "";
 }
@@ -4351,7 +4307,7 @@ set_propagate_all_clocks(bool prop)
 
 ////////////////////////////////////////////////////////////////
 
-PathEndSeq *
+PathEndSeq
 find_path_ends(ExceptionFrom *from,
 	       ExceptionThruSeq *thrus,
 	       ExceptionTo *to,
@@ -4374,15 +4330,15 @@ find_path_ends(ExceptionFrom *from,
 {
   cmdLinkedNetwork();
   Sta *sta = Sta::sta();
-  PathEndSeq *ends = sta->findPathEnds(from, thrus, to, unconstrained,
-				       corner, delay_min_max,
-				       group_count, endpoint_count, unique_pins,
-				       slack_min, slack_max,
-				       sort_by_slack,
-				       groups->size() ? groups : nullptr,
-				       setup, hold,
-				       recovery, removal,
-				       clk_gating_setup, clk_gating_hold);
+  PathEndSeq ends = sta->findPathEnds(from, thrus, to, unconstrained,
+                                      corner, delay_min_max,
+                                      group_count, endpoint_count, unique_pins,
+                                      slack_min, slack_max,
+                                      sort_by_slack,
+                                      groups->size() ? groups : nullptr,
+                                      setup, hold,
+                                      recovery, removal,
+                                      clk_gating_setup, clk_gating_hold);
   delete groups;
   return ends;
 }
@@ -4429,12 +4385,14 @@ void
 set_report_path_fields(bool report_input_pin,
 		       bool report_net,
 		       bool report_cap,
-		       bool report_slew)
+		       bool report_slew,
+                       bool report_fanout)
 {
   Sta::sta()->setReportPathFields(report_input_pin,
 				  report_net,
 				  report_cap,
-				  report_slew);
+				  report_slew,
+                                  report_fanout);
 }
 
 void
@@ -4517,19 +4475,19 @@ worst_clk_skew_cmd(const SetupHold *setup_hold)
   return Sta::sta()->findWorstClkSkew(setup_hold);
 }
 
-TmpPinSet *
+PinSet
 startpoints()
 {
   return findStartpoints();
 }
 
-TmpPinSet *
+PinSet
 endpoints()
 {
   return findEndpoints();
 }
 
-TmpPinSet *
+PinSet
 group_path_pins(const char *group_path_name)
 {
   Sta *sta = Sta::sta();
@@ -4537,7 +4495,7 @@ group_path_pins(const char *group_path_name)
   if (sdc->isGroupPathName(group_path_name))
     return sta->findGroupPathPins(group_path_name);
   else
-    return nullptr;
+    return PinSet(sta->network());
 }
 
 ////////////////////////////////////////////////////////////////
@@ -4768,37 +4726,50 @@ find_clk_min_period(const Clock *clk,
   return sta->findClkMinPeriod(clk, ignore_port_paths);
 }
 
-TmpString *
-report_delay_calc_cmd(Edge *edge,
-		      TimingArc *arc,
-		      const Corner *corner,
-		      const MinMax *min_max,
-		      int digits)
-{
-  cmdLinkedNetwork();
-  return Sta::sta()->reportDelayCalc(edge, arc, corner, min_max, digits);
-}
-
 ////////////////////////////////////////////////////////////////
 
-PinSeq *
+PinSeq
 check_slew_limits(Net *net,
                   bool violators,
                   const Corner *corner,
                   const MinMax *min_max)
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkSlewLimitsSafe(net, violators, corner, min_max);
+//   return Sta::sta()->checkSlewLimitsSafe(net, violators, corner, min_max);
+  return Sta::sta()->checkSlewLimits(net, violators, corner, min_max);
 }
 
 size_t
 max_slew_violation_count()
 {
   cmdLinkedNetwork();
-  PinSeq * seq = Sta::sta()->checkSlewLimits(nullptr, true, nullptr, MinMax::max());
-  size_t sz = seq->size();
-  delete seq;
-  return sz;
+  return Sta::sta()->checkSlewLimits(nullptr, true, nullptr, MinMax::max()).size();
+}
+
+float
+max_slew_check_slack()
+{
+  cmdLinkedNetwork();
+  Sta *sta = Sta::sta();
+  const Pin *pin;
+  Slew slew;
+  float slack;
+  float limit;
+  sta->maxSlewCheck(pin, slew, slack, limit);
+  return sta->units()->timeUnit()->staToUser(slack);
+}
+
+float
+max_slew_check_limit()
+{
+  cmdLinkedNetwork();
+  Sta *sta = Sta::sta();
+  const Pin *pin;
+  Slew slew;
+  float slack;
+  float limit;
+  sta->maxSlewCheck(pin, slew, slack, limit);
+  return sta->units()->timeUnit()->staToUser(limit);
 }
 
 void
@@ -4825,23 +4796,47 @@ report_slew_limit_verbose(Pin *pin,
 
 ////////////////////////////////////////////////////////////////
 
-PinSeq *
+PinSeq
 check_fanout_limits(Net *net,
                     bool violators,
                     const MinMax *min_max)
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkFanoutLimitsSafe(net, violators, min_max);
+//   return Sta::sta()->checkFanoutLimitsSafe(net, violators, min_max);
+  return Sta::sta()->checkFanoutLimits(net, violators, min_max);
 }
 
 size_t
 max_fanout_violation_count()
 {
   cmdLinkedNetwork();
-  PinSeq * seq = Sta::sta()->checkFanoutLimits(nullptr, true, MinMax::max());
-  size_t sz = seq->size();
-  delete seq;
-  return sz;
+  return Sta::sta()->checkFanoutLimits(nullptr, true, MinMax::max()).size();
+}
+
+float
+max_fanout_check_slack()
+{
+  cmdLinkedNetwork();
+  Sta *sta = Sta::sta();
+  const Pin *pin;
+  float fanout;
+  float slack;
+  float limit;
+  sta->maxFanoutCheck(pin, fanout, slack, limit);
+  return slack;;
+}
+
+float
+max_fanout_check_limit()
+{
+  cmdLinkedNetwork();
+  Sta *sta = Sta::sta();
+  const Pin *pin;
+  float fanout;
+  float slack;
+  float limit;
+  sta->maxFanoutCheck(pin, fanout, slack, limit);
+  return limit;;
 }
 
 void
@@ -4866,24 +4861,48 @@ report_fanout_limit_verbose(Pin *pin,
 
 ////////////////////////////////////////////////////////////////
 
-PinSeq *
+PinSeq
 check_capacitance_limits(Net *net,
                          bool violators,
                          const Corner *corner,
                          const MinMax *min_max)
 {
   cmdLinkedNetwork();
-  return Sta::sta()->checkCapacitanceLimitsSafe(net, violators, corner, min_max);
+//   return Sta::sta()->checkCapacitanceLimitsSafe(net, violators, corner, min_max);
+  return Sta::sta()->checkCapacitanceLimits(net, violators, corner, min_max);
 }
 
 size_t
 max_capacitance_violation_count()
 {
   cmdLinkedNetwork();
-  PinSeq * seq = Sta::sta()->checkCapacitanceLimits(nullptr, true,nullptr,MinMax::max());
-  size_t sz = seq->size();
-  delete seq;
-  return sz;
+  return Sta::sta()->checkCapacitanceLimits(nullptr, true,nullptr,MinMax::max()).size();
+}
+
+float
+max_capacitance_check_slack()
+{
+  cmdLinkedNetwork();
+  Sta *sta = Sta::sta();
+  const Pin *pin;
+  float capacitance;
+  float slack;
+  float limit;
+  sta->maxCapacitanceCheck(pin, capacitance, slack, limit);
+  return sta->units()->capacitanceUnit()->staToUser(slack);
+}
+
+float
+max_capacitance_check_limit()
+{
+  cmdLinkedNetwork();
+  Sta *sta = Sta::sta();
+  const Pin *pin;
+  float capacitance;
+  float slack;
+  float limit;
+  sta->maxCapacitanceCheck(pin, capacitance, slack, limit);
+  return sta->units()->capacitanceUnit()->staToUser(limit);
 }
 
 void
@@ -4910,70 +4929,7 @@ report_capacitance_limit_verbose(Pin *pin,
 
 ////////////////////////////////////////////////////////////////
 
-TmpFloatSeq *
-design_power(const Corner *corner)
-{
-  cmdLinkedNetwork();
-  PowerResult total, sequential, combinational, macro, pad;
-  Sta::sta()->power(corner, total, sequential, combinational, macro, pad);
-  FloatSeq *floats = new FloatSeq;
-  pushPowerResultFloats(total, floats);
-  pushPowerResultFloats(sequential, floats);
-  pushPowerResultFloats(combinational, floats);
-  pushPowerResultFloats(macro, floats);
-  pushPowerResultFloats(pad, floats);
-  return floats;
-}
-
-TmpFloatSeq *
-instance_power(Instance *inst,
-	       const Corner *corner)
-{
-  cmdLinkedNetwork();
-  PowerResult power;
-  Sta::sta()->power(inst, corner, power);
-  FloatSeq *floats = new FloatSeq;
-  floats->push_back(power.internal());
-  floats->push_back(power.switching());
-  floats->push_back(power.leakage());
-  floats->push_back(power.total());
-  return floats;
-}
-
-void
-set_power_global_activity(float activity,
-			  float duty)
-{
-  Sta::sta()->power()->setGlobalActivity(activity, duty);
-}
-
-void
-set_power_input_activity(float activity,
-			 float duty)
-{
-  return Sta::sta()->power()->setInputActivity(activity, duty);
-}
-
-void
-set_power_input_port_activity(const Port *input_port,
-			      float activity,
-			      float duty)
-{
-  return Sta::sta()->power()->setInputPortActivity(input_port, activity, duty);
-}
-
-void
-set_power_pin_activity(const Pin *pin,
-		       float activity,
-		       float duty)
-{
-  return Sta::sta()->power()->setUserActivity(pin, activity, duty,
-					      PwrActivityOrigin::user);
-}
-
-////////////////////////////////////////////////////////////////
-
-EdgeSeq *
+EdgeSeq
 disabled_edges_sorted()
 {
   cmdLinkedNetwork();
@@ -4998,14 +4954,27 @@ write_path_spice_cmd(PathRef *path,
 		     const char *subckt_filename,
 		     const char *lib_subckt_filename,
 		     const char *model_filename,
+                     StdStringSet *off_path_pins,
 		     const char *power_name,
 		     const char *gnd_name)
 {
   Sta *sta = Sta::sta();
   writePathSpice(path, spice_filename, subckt_filename,
-		 lib_subckt_filename, model_filename,
+		 lib_subckt_filename, model_filename, off_path_pins,
 		 power_name, gnd_name, sta);
+  delete off_path_pins;
 }
+
+void
+write_timing_model_cmd(const char *lib_name,
+                       const char *cell_name,
+                       const char *filename,
+                       const Corner *corner)
+{
+  Sta::sta()->writeTimingModel(lib_name, cell_name, filename, corner);
+}
+
+////////////////////////////////////////////////////////////////
 
 bool
 liberty_supply_exists(const char *supply_name)
@@ -5148,7 +5117,7 @@ timing_role_is_check(TimingRole *role)
 
 ////////////////////////////////////////////////////////////////
 
-TmpPinSet *
+PinSet
 find_fanin_pins(PinSeq *to,
 		bool flat,
 		bool startpoints_only,
@@ -5159,14 +5128,14 @@ find_fanin_pins(PinSeq *to,
 {
   cmdLinkedNetwork();
   Sta *sta = Sta::sta();
-  PinSet *fanin = sta->findFaninPins(to, flat, startpoints_only,
-				     inst_levels, pin_levels,
-				     thru_disabled, thru_constants);
+  PinSet fanin = sta->findFaninPins(to, flat, startpoints_only,
+                                    inst_levels, pin_levels,
+                                    thru_disabled, thru_constants);
   delete to;
   return fanin;
 }
 
-TmpInstanceSet *
+InstanceSet
 find_fanin_insts(PinSeq *to,
 		 bool flat,
 		 bool startpoints_only,
@@ -5177,14 +5146,14 @@ find_fanin_insts(PinSeq *to,
 {
   cmdLinkedNetwork();
   Sta *sta = Sta::sta();
-  InstanceSet *fanin = sta->findFaninInstances(to, flat, startpoints_only,
-					       inst_levels, pin_levels,
-					       thru_disabled, thru_constants);
+  InstanceSet fanin = sta->findFaninInstances(to, flat, startpoints_only,
+                                              inst_levels, pin_levels,
+                                              thru_disabled, thru_constants);
   delete to;
   return fanin;
 }
 
-TmpPinSet *
+PinSet
 find_fanout_pins(PinSeq *from,
 		 bool flat,
 		 bool endpoints_only,
@@ -5195,14 +5164,14 @@ find_fanout_pins(PinSeq *from,
 {
   cmdLinkedNetwork();
   Sta *sta = Sta::sta();
-  PinSet *fanout = sta->findFanoutPins(from, flat, endpoints_only,
-				       inst_levels, pin_levels,
-				       thru_disabled, thru_constants);
+  PinSet fanout = sta->findFanoutPins(from, flat, endpoints_only,
+                                      inst_levels, pin_levels,
+                                      thru_disabled, thru_constants);
   delete from;
   return fanout;
 }
 
-TmpInstanceSet *
+InstanceSet
 find_fanout_insts(PinSeq *from,
 		  bool flat,
 		  bool endpoints_only,
@@ -5213,38 +5182,38 @@ find_fanout_insts(PinSeq *from,
 {
   cmdLinkedNetwork();
   Sta *sta = Sta::sta();
-  InstanceSet *fanout = sta->findFanoutInstances(from, flat, endpoints_only,
-						 inst_levels, pin_levels,
-						 thru_disabled, thru_constants);
+  InstanceSet fanout = sta->findFanoutInstances(from, flat, endpoints_only,
+                                                inst_levels, pin_levels,
+                                                thru_disabled, thru_constants);
   delete from;
   return fanout;
 }
 
-TmpPinSet *
+PinSet
 net_load_pins(Net *net)
 {
   Network *network = cmdLinkedNetwork();
-  PinSet *pins = new PinSet;
+  PinSet pins(network);
   NetConnectedPinIterator *pin_iter = network->connectedPinIterator(net);
   while (pin_iter->hasNext()) {
-    Pin *pin = pin_iter->next();
+    const Pin *pin = pin_iter->next();
     if (network->isLoad(pin))
-      pins->insert(pin);
+      pins.insert(pin);
   }
   delete pin_iter;
   return pins;
 }
 
-TmpPinSet *
+PinSet
 net_driver_pins(Net *net)
 {
   Network *network = cmdLinkedNetwork();
-  PinSet *pins = new PinSet;
+  PinSet pins(network);
   NetConnectedPinIterator *pin_iter = network->connectedPinIterator(net);
   while (pin_iter->hasNext()) {
-    Pin *pin = pin_iter->next();
+    const Pin *pin = pin_iter->next();
     if (network->isDriver(pin))
-      pins->insert(pin);
+      pins.insert(pin);
   }
   delete pin_iter;
   return pins;
@@ -5259,10 +5228,7 @@ report_loops()
   Network *network = cmdLinkedNetwork();
   Graph *graph = cmdGraph();
   Report *report = sta->report();
-  GraphLoopSeq *loops = sta->graphLoops();
-  GraphLoopSeq::Iterator loop_iter(loops);
-  while (loop_iter.hasNext()) {
-    GraphLoop *loop = loop_iter.next();
+  for (GraphLoop *loop : *sta->graphLoops()) {
     loop->report(report, network, graph);
     report->reportLineString("");
   }
@@ -5520,7 +5486,28 @@ port_location(const Port *port)
 int
 endpoint_count()
 {
-  return Sta::sta()->endpointCount();
+  return Sta::sta()->endpoints()->size();
+}
+
+int
+endpoint_violation_count(const MinMax *min_max)
+{
+  return  Sta::sta()->endpointViolationCount(min_max);
+}
+
+void
+set_voltage_global(const MinMax *min_max,
+                   float voltage)
+{
+  Sta::sta()->setVoltage(min_max, voltage);
+}
+
+void
+set_voltage_net(const Net *net,
+                const MinMax *min_max,
+                float voltage)
+{
+  Sta::sta()->setVoltage(net, min_max, voltage);
 }
 
 %} // inline
@@ -5543,15 +5530,14 @@ find_cell(const char *name)
   return cmdNetwork()->findCell(self, name);
 }
 
-TmpCellSeq *
+CellSeq
 find_cells_matching(const char *pattern,
 		    bool regexp,
 		    bool nocase)
 {
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  TmpCellSeq *cells = new TmpCellSeq;
-  cmdNetwork()->findCellsMatching(self, &matcher, cells);
-  return cells;
+  CellSeq matches = cmdNetwork()->findCellsMatching(self, &matcher);
+  return matches;
 }
 
 } // Library methods
@@ -5565,16 +5551,13 @@ find_liberty_cell(const char *name)
   return self->findLibertyCell(name);
 }
 
-TmpLibertyCellSeq *
+LibertyCellSeq
 find_liberty_cells_matching(const char *pattern,
 			    bool regexp,
 			    bool nocase)
 {
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  // TmpLibertyCellSeq deletes temporary CellSeq after conversion to tcl list.
-  TmpLibertyCellSeq *cells = new TmpLibertyCellSeq;
-  self->findLibertyCellsMatching(&matcher, cells);
-  return cells;
+  return self->findLibertyCellsMatching(&matcher);
 }
 
 Wireload *
@@ -5628,15 +5611,13 @@ find_port(const char *name)
   return cmdNetwork()->findPort(self, name);
 }
 
-TmpPortSeq *
+PortSeq
 find_ports_matching(const char *pattern,
 		    bool regexp,
 		    bool nocase)
 {
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  TmpPortSeq *ports = new TmpPortSeq;
-  cmdNetwork()->findPortsMatching(self, &matcher, ports);
-  return ports;
+  return cmdNetwork()->findPortsMatching(self, &matcher);
 }
 
 } // Cell methods
@@ -5654,22 +5635,23 @@ find_liberty_port(const char *name)
   return self->findLibertyPort(name);
 }
 
-TmpLibertyPortSeq *
+LibertyPortSeq
 find_liberty_ports_matching(const char *pattern,
 			    bool regexp,
 			    bool nocase)
 {
   PatternMatch matcher(pattern, regexp, nocase, Sta::sta()->tclInterp());
-  TmpLibertyPortSeq *ports = new TmpLibertyPortSeq;
-  self->findLibertyPortsMatching(&matcher, ports);
-  return ports;
+  return self->findLibertyPortsMatching(&matcher);
 }
 
 LibertyCellPortIterator *
 liberty_port_iterator() { return new LibertyCellPortIterator(self); }
 
-LibertyCellTimingArcSetIterator *
-timing_arc_set_iterator() { return new LibertyCellTimingArcSetIterator(self); }
+const TimingArcSetSeq &
+timing_arc_sets()
+{
+  return self->timingArcSets();
+}
 
 } // LibertyCell methods
 
@@ -5768,29 +5750,68 @@ full_name()
 			to);
 }
 
-} // TimingArcSet methods
+TimingArcSeq &
+timing_arcs() { return self->arcs(); }
 
-%extend LibertyCellTimingArcSetIterator {
-bool has_next() { return self->hasNext(); }
-TimingArcSet *next() { return self->next(); }
-void finish() { delete self; }
-}
+} // TimingArcSet methods
 
 %extend TimingArc {
 LibertyPort *from() { return self->from(); }
 LibertyPort *to() { return self->to(); }
-Transition *from_trans() { return self->fromTrans(); }
-const char *from_trans_name() { return self->fromTrans()->asRiseFall()->name(); }
-Transition *to_trans() { return self->toTrans(); }
-const char *to_trans_name() { return self->toTrans()->asRiseFall()->name(); }
+Transition *from_edge() { return self->fromEdge(); }
+const char *from_edge_name() { return self->fromEdge()->asRiseFall()->name(); }
+Transition *to_edge() { return self->toEdge(); }
+const char *to_edge_name() { return self->toEdge()->asRiseFall()->name(); }
 TimingRole *role() { return self->role(); }
-} // TimingArc methods
 
-%extend TimingArcSetArcIterator {
-bool has_next() { return self->hasNext(); }
-TimingArc *next() { return self->next(); }
-void finish() { delete self; }
+Table1
+voltage_waveform(float in_slew,
+                 float load_cap)
+{
+  GateTableModel *gate_model = dynamic_cast<GateTableModel*>(self->model());
+  if (gate_model) {
+    OutputWaveforms *waveforms = gate_model->outputWaveforms();
+    if (waveforms) {
+      Table1 waveform = waveforms->voltageWaveform(in_slew, load_cap);
+      return waveform;
+    }
+  }
+  return Table1();
 }
+
+const Table1 *
+current_waveform(float in_slew,
+                 float load_cap)
+{
+  GateTableModel *gate_model = dynamic_cast<GateTableModel*>(self->model());
+  if (gate_model) {
+    OutputWaveforms *waveforms = gate_model->outputWaveforms();
+    if (waveforms) {
+      const Table1 *waveform = waveforms->currentWaveform(in_slew, load_cap);
+      return waveform;
+    }
+  }
+  return nullptr;
+}
+
+float
+voltage_current(float in_slew,
+                float load_cap,
+                float voltage)
+{
+  GateTableModel *gate_model = dynamic_cast<GateTableModel*>(self->model());
+  if (gate_model) {
+    OutputWaveforms *waveforms = gate_model->outputWaveforms();
+    if (waveforms) {
+      waveforms->setVdd(.7);
+      float current = waveforms->voltageCurrent(in_slew, load_cap, voltage);
+      return current;
+    }
+  }
+  return 0.0;
+}
+
+} // TimingArc methods
 
 %extend Instance {
 Instance *parent() { return cmdLinkedNetwork()->parent(self); }
@@ -5862,44 +5883,11 @@ vertices()
   return vertices;
 }
 
-float
-capacitance(const RiseFall *rf,
-	    const Corner *corner,
-	    const MinMax *min_max)
-{
-  cmdLinkedNetwork();
-  float pin_cap, wire_cap;
-  Sta::sta()->connectedCap(self, rf, corner, min_max, pin_cap, wire_cap);
-  return pin_cap + wire_cap;
-}
-
-float
-pin_capacitance(const RiseFall *rf,
-		const Corner *corner,
-		const MinMax *min_max)
-{
-  cmdLinkedNetwork();
-  float pin_cap, wire_cap;
-  Sta::sta()->connectedCap(self, rf, corner, min_max, pin_cap, wire_cap);
-  return pin_cap;
-}
-
-float
-wire_capacitance(const RiseFall *rf,
-		 const Corner *corner,
-		 const MinMax *min_max)
-{
-  cmdLinkedNetwork();
-  float pin_cap, wire_cap;
-  Sta::sta()->connectedCap(self, rf, corner, min_max, pin_cap, wire_cap);
-  return wire_cap;
-}
-
 } // Pin methods
 
 %extend PinConnectedPinIterator {
 bool has_next() { return self->hasNext(); }
-Pin *next() { return self->next(); }
+const Pin *next() { return self->next(); }
 void finish() { delete self; }
 } // PinConnectedPinIterator methods
 
@@ -5910,7 +5898,7 @@ Pin *pin() { return cmdLinkedNetwork()->pin(self); }
 
 %extend Net {
 Instance *instance() { return cmdLinkedNetwork()->instance(self); }
-Net *highest_connected_net()
+const Net *highest_connected_net()
 { return cmdLinkedNetwork()->highestConnectedNet(self); }
 NetPinIterator *pin_iterator() { return cmdLinkedNetwork()->pinIterator(self);}
 NetTermIterator *term_iterator() {return cmdLinkedNetwork()->termIterator(self);}
@@ -5950,17 +5938,17 @@ wire_capacitance(Corner *corner,
 }
 
 // get_ports -of_objects net
-TmpPortSeq *
+PortSeq
 ports()
 {
   Network *network = cmdLinkedNetwork();
-  PortSeq *ports = new PortSeq;
+  PortSeq ports;
   if (network->isTopInstance(network->instance(self))) {
     NetTermIterator *term_iter = network->termIterator(self);
     while (term_iter->hasNext()) {
       Term *term = term_iter->next();
       Port *port = network->port(network->pin(term));
-      ports->push_back(port);
+      ports.push_back(port);
     }
     delete term_iter;
   }
@@ -5971,19 +5959,19 @@ ports()
 
 %extend NetPinIterator {
 bool has_next() { return self->hasNext(); }
-Pin *next() { return self->next(); }
+const Pin *next() { return self->next(); }
 void finish() { delete self; }
 } // NetPinIterator methods
 
 %extend NetTermIterator {
 bool has_next() { return self->hasNext(); }
-Term *next() { return self->next(); }
+const Term *next() { return self->next(); }
 void finish() { delete self; }
 } // NetTermIterator methods
 
 %extend NetConnectedPinIterator {
 bool has_next() { return self->hasNext(); }
-Pin *next() { return self->next(); }
+const Pin *next() { return self->next(); }
 void finish() { delete self; }
 } // NetConnectedPinIterator methods
 
@@ -5995,7 +5983,7 @@ bool is_generated() { return self->isGenerated(); }
 bool waveform_valid() { return self->waveformValid(); }
 bool is_virtual() { return self->isVirtual(); }
 bool is_propagated() { return self->isPropagated(); }
-PinSet &sources() { return self->pins(); }
+const PinSet &sources() { return self->pins(); }
 
 float
 slew(const RiseFall *rf,
@@ -6010,12 +5998,6 @@ slew(const RiseFall *rf,
 Clock *clock() { return self->clock(); }
 RiseFall *transition() { return self->transition(); }
 float time() { return self->time(); }
-}
-
-%extend ClockIterator {
-bool has_next() { return self->hasNext(); }
-Clock *next() { return self->next(); }
-void finish() { delete self; }
 }
 
 %extend Vertex {
@@ -6053,76 +6035,75 @@ in_edge_iterator()
   return new VertexInEdgeIterator(self, Sta::sta()->graph());
 }
 
-TmpFloatSeq *
+FloatSeq
 arrivals_clk(const RiseFall *rf,
 	     Clock *clk,
 	     const RiseFall *clk_rf)
 {
   Sta *sta = Sta::sta();
-  TmpFloatSeq *floats = new FloatSeq;
+  FloatSeq arrivals;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    floats->push_back(delayAsFloat(sta->vertexArrival(self, rf, clk_edge,
-						      path_ap)));
+    arrivals.push_back(delayAsFloat(sta->vertexArrival(self, rf, clk_edge,
+                                                       path_ap, nullptr)));
   }
-  return floats;
+  return arrivals;
 }
 
-TmpStringSeq *
+StringSeq
 arrivals_clk_delays(const RiseFall *rf,
 		    Clock *clk,
 		    const RiseFall *clk_rf,
 		    int digits)
 {
   Sta *sta = Sta::sta();
-  StringSeq *arrivals = new StringSeq;
+  StringSeq arrivals;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    arrivals->push_back(delayAsString(sta->vertexArrival(self, rf, clk_edge,
-							 path_ap),
-				      sta, digits));
+    arrivals.push_back(delayAsString(sta->vertexArrival(self, rf, clk_edge,
+                                                        path_ap, nullptr),
+                                     sta, digits));
   }
   return arrivals;
 }
 
-TmpFloatSeq *
+FloatSeq
 requireds_clk(const RiseFall *rf,
 	      Clock *clk,
 	      const RiseFall *clk_rf)
 {
   Sta *sta = Sta::sta();
-  TmpFloatSeq *floats = new FloatSeq;
+  FloatSeq reqs;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    floats->push_back(delayAsFloat(sta->vertexRequired(self, rf, clk_edge,
-						       path_ap)));
+    reqs.push_back(delayAsFloat(sta->vertexRequired(self, rf, clk_edge,
+                                                    path_ap)));
   }
-  return floats;
+  return reqs;
 }
 
-TmpStringSeq *
+StringSeq
 requireds_clk_delays(const RiseFall *rf,
 		     Clock *clk,
 		     const RiseFall *clk_rf,
 		     int digits)
 {
   Sta *sta = Sta::sta();
-  StringSeq *requireds = new StringSeq;
+  StringSeq reqs;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    requireds->push_back(delayAsString(sta->vertexRequired(self, rf, clk_edge,
-							   path_ap),
-				       sta, digits));
+    reqs.push_back(delayAsString(sta->vertexRequired(self, rf, clk_edge, path_ap),
+                                 sta, digits));
   }
-  return requireds;
+  return reqs;
 }
 
 Slack
@@ -6132,50 +6113,50 @@ slack(MinMax *min_max)
   return sta->vertexSlack(self, min_max);
 }
 
-TmpFloatSeq *
+FloatSeq
 slacks(RiseFall *rf)
 {
   Sta *sta = Sta::sta();
-  TmpFloatSeq *floats = new FloatSeq;
+  FloatSeq slacks;
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    floats->push_back(delayAsFloat(sta->vertexSlack(self, rf, path_ap)));
+    slacks.push_back(delayAsFloat(sta->vertexSlack(self, rf, path_ap)));
   }
-  return floats;
+  return slacks;
 }
 
 // Slack with respect to a clock rise/fall edge.
-TmpFloatSeq *
+FloatSeq
 slacks_clk(const RiseFall *rf,
 	   Clock *clk,
 	   const RiseFall *clk_rf)
 {
   Sta *sta = Sta::sta();
-  TmpFloatSeq *floats = new FloatSeq;
+  FloatSeq slacks;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    floats->push_back(delayAsFloat(sta->vertexSlack(self, rf, clk_edge,
-						    path_ap)));
+    slacks.push_back(delayAsFloat(sta->vertexSlack(self, rf, clk_edge,
+                                                   path_ap)));
   }
-  return floats;
+  return slacks;
 }
 
-TmpStringSeq *
+StringSeq
 slacks_clk_delays(const RiseFall *rf,
 		  Clock *clk,
 		  const RiseFall *clk_rf,
 		  int digits)
 {
   Sta *sta = Sta::sta();
-  StringSeq *slacks = new StringSeq;
+  StringSeq slacks;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    slacks->push_back(delayAsString(sta->vertexSlack(self, rf, clk_edge,
-						     path_ap),
-				    sta, digits));
+    slacks.push_back(delayAsString(sta->vertexSlack(self, rf, clk_edge,
+                                                    path_ap),
+                                   sta, digits));
   }
   return slacks;
 }
@@ -6212,14 +6193,14 @@ Pin *from_pin() { return self->from(Sta::sta()->graph())->pin(); }
 Pin *to_pin() { return self->to(Sta::sta()->graph())->pin(); }
 TimingRole *role() { return self->role(); }
 const char *sense() { return timingSenseString(self->sense()); }
-TimingArcSetArcIterator *
-timing_arc_iterator() { return new TimingArcSetArcIterator(self->timingArcSet()); }
+TimingArcSeq &
+timing_arcs() { return self->timingArcSet()->arcs(); }
 bool is_disabled_loop() { return Sta::sta()->isDisabledLoop(self); }
 bool is_disabled_constraint() { return Sta::sta()->isDisabledConstraint(self);}
 bool is_disabled_constant() { return Sta::sta()->isDisabledConstant(self); }
 bool is_disabled_cond_default()
 { return Sta::sta()->isDisabledCondDefault(self); }
-TmpPinSet *
+PinSet
 disabled_constant_pins() { return Sta::sta()->disabledConstantPins(self); }
 bool is_disabled_bidirect_inst_path()
 { return Sta::sta()->isDisabledBidirectInstPath(self); }
@@ -6230,25 +6211,25 @@ bool is_disabled_preset_clear()
 const char *
 sim_timing_sense(){return timingSenseString(Sta::sta()->simTimingSense(self));}
 
-TmpFloatSeq *
+FloatSeq
 arc_delays(TimingArc *arc)
 {
   Sta *sta = Sta::sta();
-  TmpFloatSeq *floats = new FloatSeq;
+  FloatSeq delays;
   for (auto dcalc_ap : sta->corners()->dcalcAnalysisPts())
-    floats->push_back(delayAsFloat(sta->arcDelay(self, arc, dcalc_ap)));
-  return floats;
+    delays.push_back(delayAsFloat(sta->arcDelay(self, arc, dcalc_ap)));
+  return delays;
 }
 
-TmpStringSeq *
+StringSeq
 arc_delay_strings(TimingArc *arc,
 		  int digits)
 {
   Sta *sta = Sta::sta();
-  StringSeq *delays = new StringSeq;
+  StringSeq delays;
   for (auto dcalc_ap : sta->corners()->dcalcAnalysisPts())
-    delays->push_back(delayAsString(sta->arcDelay(self, arc, dcalc_ap),
-				    sta, digits));
+    delays.push_back(delayAsString(sta->arcDelay(self, arc, dcalc_ap),
+                                   sta, digits));
   return delays;
 }
 
@@ -6356,8 +6337,8 @@ float source_clk_offset() { return self->sourceClkOffset(Sta::sta()); }
 Arrival source_clk_latency() { return self->sourceClkLatency(Sta::sta()); }
 Arrival source_clk_insertion_delay()
 { return self->sourceClkInsertionDelay(Sta::sta()); }
-Clock *target_clk() { return self->targetClk(Sta::sta()); }
-ClockEdge *target_clk_edge() { return self->targetClkEdge(Sta::sta()); }
+const Clock *target_clk() { return self->targetClk(Sta::sta()); }
+const ClockEdge *target_clk_edge() { return self->targetClkEdge(Sta::sta()); }
 Path *target_clk_path() { return self->targetClkPath(); }
 float target_clk_time() { return self->targetClkTime(Sta::sta()); }
 float target_clk_offset() { return self->targetClkOffset(Sta::sta()); }
@@ -6407,7 +6388,7 @@ slack()
   return delayAsFloat(self->slack(sta));
 }
 
-Pin *
+const Pin *
 pin()
 {
   Sta *sta = Sta::sta();
@@ -6422,14 +6403,14 @@ tag()
 }
 
 // mea_opt3
-TmpPinSeq *
+PinSeq
 pins()
 {
   Sta *sta = Sta::sta();
-  PinSeq *pins = new PinSeq;
+  PinSeq pins;
   PathRef path1(self);
   while (!path1.isNull()) {
-    pins->push_back(path1.vertex(sta)->pin());
+    pins.push_back(path1.vertex(sta)->pin());
     PathRef prev_path;
     path1.prevPath(sta, prev_path);
     path1.init(prev_path);
@@ -6453,7 +6434,7 @@ void finish() { delete self; }
 
 %extend SlowDrvrIterator {
 bool has_next() { return self->hasNext(); }
-Instance *next() { return self->next(); }
+const Instance *next() { return self->next(); }
 void
 finish()
 {

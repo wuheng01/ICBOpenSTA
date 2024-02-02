@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -169,20 +169,6 @@ MinMaxAll::find(const char *min_max)
     return &all_;
   else
     return nullptr;
-}
-
-////////////////////////////////////////////////////////////////
-
-MinMaxIterator::MinMaxIterator(const MinMaxAll *min_max)
-{
-  if (min_max == MinMaxAll::all()) {
-    index_ = 0;
-    index_max_ = MinMax::index_max;
-  }
-  else {
-    index_ = min_max->asMinMax()->index();
-    index_max_ = index_;
-  }
 }
 
 } // namespace
