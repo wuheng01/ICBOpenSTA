@@ -1044,6 +1044,7 @@ public:
 			  const Pin *load);
   void ensureClkHpinDisables();
   bool bidirectDrvrSlewFromLoad(const Pin *pin) const;
+  const ClockGroupsNameMap& clockGroupsNameMap() const { return clk_groups_name_map_; }
 
 protected:
   void initVariables();

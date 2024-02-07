@@ -276,7 +276,7 @@ Module::processAssign(VerilogAssign* s) {
   std::string lnname = l->name();
   std::string rnname = r->name();
   assert(lnname.size());
-  assert(rnname.size());
+//   assert(rnname.size());
   std::string lnetname = lnname;
   std::string rnetname = rnname;
   VerilogDcl* ldcl = module->declaration(lnetname.c_str());

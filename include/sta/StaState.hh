@@ -96,6 +96,7 @@ public:
   unsigned threadCount() const { return thread_count_; }
   bool pocvEnabled() const { return pocv_enabled_; }
   float sigmaFactor() const { return sigma_factor_; }
+  Graph*& getGraph() { return graph_; }
 
 protected:
   Report *report_;
