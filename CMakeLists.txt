@@ -33,10 +33,10 @@ option(CUDD_DIR "CUDD BDD package directory")
 option(ABC_DIR  "ABC library directory" )
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
-add_compile_options("-DLIN64")
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
 set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
+
 message(STATUS "STA version: ${PROJECT_VERSION}")
 message(STATUS "ABC directory: ${ABC_DIR}")
 message(STATUS "ABC include directories: ${ABC_DIR}/src/base")
@@ -109,21 +109,7 @@ set(STA_SOURCE
   liberty/Units.cc
   liberty/Wireload.cc
 
-  #The restructuring directory
-  #Cuts and cut generation
-  restr/Cut.cc
-  restr/CutGen.cc
-  restr/ClusterCutGen.cc  
-  restr/FuncExpr2Kit.cc
-  #Liberty interface
-  restr/LibRead.cc
-  #cut to abc
-  restr/Cut2Ntk.cc
-  #abc to cut
-  restr/Ntk2Cut.cc
-  #remap: timing api and remapping api.
-  restr/PhysTiming.cc
-  restr/PhysRemap.cc
+
   #Abc lite
   abclite/kit/Kit.cc  
   abclite/extra/ExtraUtil.cc
@@ -465,6 +451,7 @@ include(FindZLIB)
 find_package(Threads)
 
 
+
 ################################################################
 #
 # Locate CUDD bdd package.
@@ -564,8 +551,6 @@ target_include_directories(OpenSTA
   abclite/npnencode
   restr
   
-  ${ABC_DIR}/src/base
-  ${ABC_DIR}/src/base/abc
   ${ABC_DIR}/src
 
 
@@ -609,6 +594,11 @@ target_link_libraries(sta
   ${CMAKE_THREAD_LIBS_INIT}
   )
 
+if (ABC_LIB)
+  message(STATUS "ABC library: ${ABC_LIB}")
+  target_link_libraries(sta ${ABC_LIB}  ${CMAKE_DL_LIBS} )
+endif()
+  
 if (ZLIB_LIBRARIES)
   message(STATUS "zlib library: ${ZLIB_LIBRARIES}")
   target_link_libraries(sta ${ZLIB_LIBRARIES})

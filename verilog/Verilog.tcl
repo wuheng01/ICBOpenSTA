@@ -42,25 +42,6 @@ proc write_verilog { args } {
   write_verilog_cmd $filename $sort $include_pwr_gnd $exclude_not_in_lib $remove_cells
 }
 
-define_cmd_args "write_cuts" {filename}
-proc write_cuts { args } {
-    check_argc_eq1 "write_cuts" $args
-    set filename [file nativename [lindex $args 0]]
-    write_cuts_cmd $filename 
-}
-
-
-define_cmd_args "phys_remap" {[-script script_file_name_in] target_library_in}
-proc phys_remap { args } {
-    set script_file_name {}
-    set target_library_name {}
-    parse_key_args "phys_remap" args keys {-script} 
-    if { [info exists keys(-script)]} {
-	set script_file_name $keys(-script)
-    } 
-    set target_library_name [file nativename [lindex $args 0]]
-    phys_remap_cmd $target_library_name $script_file_name false
-}
 
 # sta namespace end
 }
