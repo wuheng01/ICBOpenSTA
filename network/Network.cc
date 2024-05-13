@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -22,8 +22,12 @@
 #include "Liberty.hh"
 #include "PortDirection.hh"
 #include "Corner.hh"
+#include "ParseBus.hh"
 
 namespace sta {
+
+NameResolve::ModuleList* 
+Network::nameResolver = nullptr;
 
 Network::Network() :
   default_liberty_(nullptr),
@@ -54,6 +58,64 @@ LibertyLibrary *
 Network::libertyLibrary(const Cell *cell) const
 {
   return libertyCell(cell)->libertyLibrary();
+}
+
+PortSeq
+Network::findPortsMatching(const Cell *cell,
+                           const PatternMatch *pattern) const
+{
+  PortSeq matches;
+  bool is_bus, is_range, subscript_wild;
+  string bus_name;
+  int from, to;
+  parseBusName(pattern->pattern(), '[', ']', '\\',
+               is_bus, is_range, bus_name, from, to, subscript_wild);
+  if (is_bus) {
+    PatternMatch bus_pattern(bus_name.c_str(), pattern);
+    CellPortIterator *port_iter = portIterator(cell);
+    while (port_iter->hasNext()) {
+      Port *port = port_iter->next();
+      if (isBus(port)
+          && bus_pattern.match(name(port))) {
+        if (is_range) {
+          // bus[8:0]
+          if (from > to)
+            std::swap(from, to);
+          for (int bit = from; bit <= to; bit++) {
+            Port *port_bit = findBusBit(port, bit);
+            matches.push_back(port_bit);
+          }
+        }
+        else {
+          if (subscript_wild) {
+            PortMemberIterator *member_iter = memberIterator(port);
+            while (member_iter->hasNext()) {
+              Port *port_bit = member_iter->next();
+              matches.push_back(port_bit);
+            }
+            delete member_iter;
+          }
+          else {
+            // bus[0]
+            Port *port_bit = findBusBit(port, from);
+	    if (port_bit != nullptr)
+	      matches.push_back(port_bit);
+          }
+        }
+      }
+    }
+    delete port_iter;
+  }
+  else {
+    CellPortIterator *port_iter = portIterator(cell);
+    while (port_iter->hasNext()) {
+      Port *port = port_iter->next();
+      if (pattern->match(name(port)))
+        matches.push_back(port);
+    }
+    delete port_iter;
+  }
+  return matches;
 }
 
 LibertyLibrary *
@@ -629,6 +691,8 @@ Instance *
 Network::findInstanceRelative(const Instance *inst,
 			      const char *path_name) const
 {
+  Instance* res = findChild(inst, path_name);
+  if (res) return res;
   char *first, *tail;
   pathNameFirst(path_name, first, tail);
   if (first) {
@@ -649,8 +713,7 @@ Network::findInstanceRelative(const Instance *inst,
     stringDelete(tail);
     return inst1;
   }
-  else
-    return findChild(inst, path_name);
+  return NULL;
 }
 
 InstanceSeq
@@ -808,6 +871,10 @@ Net *
 Network::findNetRelative(const Instance *inst,
 			 const char *path_name) const
 {
+  Net *found_net = findNet(inst, path_name);
+  if (found_net)
+    return found_net;
+
   char *inst_path, *net_name;
   pathNameLast(path_name, inst_path, net_name);
   if (inst_path) {
@@ -968,13 +1035,17 @@ Network::findPinsHierMatching(const Instance *instance,
                               // Return value.
                               PinSeq &matches) const
 {
-  InstanceChildIterator *child_iter = childIterator(instance);
-  while (child_iter->hasNext()) {
-    Instance *child = child_iter->next();
-    findInstPinsHierMatching(child, pattern, matches);
-    findPinsHierMatching(child, pattern, matches);
+  if (pattern->hasWildcards()) {
+    InstanceChildIterator *child_iter = childIterator(instance);
+    while (child_iter->hasNext()) {
+      Instance *child = child_iter->next();
+      findInstPinsHierMatching(child, pattern, matches);
+      findPinsHierMatching(child, pattern, matches);
+    }
+  } else {
+    Pin* res = findPinRelative(instance, pattern->pattern());
+    if (res) matches.push_back(res);
   }
-  delete child_iter;
 }
 
 void
@@ -1538,6 +1609,8 @@ Network::clearNetDrvrPinMap()
   net_drvr_pin_map_.deleteContentsClear();
 }
 
+static std::mutex net_drvr_pin_map_mutex;
+
 PinSet *
 Network::drivers(const Net *net)
 {
@@ -1546,6 +1619,7 @@ Network::drivers(const Net *net)
     drvrs = new PinSet(this);
     FindDrvrPins visitor(drvrs, this);
     visitConnectedPins(net, visitor);
+    std::lock_guard<std::mutex> lg(net_drvr_pin_map_mutex);
     net_drvr_pin_map_[net] = drvrs;
   }
   return drvrs;
@@ -1922,7 +1996,7 @@ CellIdLess::CellIdLess(const Network *network) :
 
 bool
 CellIdLess::operator()(const Cell *cell1,
-                      const Cell *cell2) const
+                       const Cell *cell2) const
 {
   return network_->id(cell1) < network_->id(cell2);
 }
@@ -2035,6 +2109,16 @@ InstanceSet::compare(const InstanceSet *set1,
     return (size1 > size2) ? 1 : -1;
 }
 
+bool
+InstanceSet::intersects(const InstanceSet *set1,
+                        const InstanceSet *set2,
+                        const Network *network)
+{
+  return Set<const Instance*, InstanceIdLess>::intersects(set1, set2, InstanceIdLess(network));
+}
+
+////////////////////////////////////////////////////////////////
+
 PinSet::PinSet() :
   Set<const Pin*, PinIdLess>(PinIdLess(nullptr))
 {
@@ -2072,6 +2156,16 @@ PinSet::compare(const PinSet *set1,
     return (size1 > size2) ? 1 : -1;
 }
 
+bool
+PinSet::intersects(const PinSet *set1,
+                   const PinSet *set2,
+                   const Network *network)
+{
+  return Set<const Pin*, PinIdLess>::intersects(set1, set2, PinIdLess(network));
+}
+
+////////////////////////////////////////////////////////////////
+
 NetSet::NetSet() :
   Set<const Net*, NetIdLess>(NetIdLess(nullptr))
 {
@@ -2107,6 +2201,14 @@ NetSet::compare(const NetSet *set1,
   }
   else
     return (size1 > size2) ? 1 : -1;
+}
+
+bool
+NetSet::intersects(const NetSet *set1,
+                   const NetSet *set2,
+                   const Network *network)
+{
+  return Set<const Net*, NetIdLess>::intersects(set1, set2, NetIdLess(network));
 }
 
 } // namespace

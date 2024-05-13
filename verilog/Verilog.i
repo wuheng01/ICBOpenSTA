@@ -3,7 +3,7 @@
 %{
 
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@
 #include "VerilogReader.hh"
 #include "VerilogWriter.hh"
 #include "Sta.hh"
+
+
 
 using sta::Sta;
 using sta::NetworkReader;
@@ -53,14 +55,20 @@ void
 write_verilog_cmd(const char *filename,
 		  bool sort,
 		  bool include_pwr_gnd,
+		  bool exclude_not_in_lib,
 		  CellSeq *remove_cells)
 {
   // This does NOT want the SDC (cmd) network because it wants
   // to see the sta internal names.
   Sta *sta = Sta::sta();
   Network *network = sta->network();
-  writeVerilog(filename, sort, include_pwr_gnd, remove_cells, network);
+  writeVerilog(
+    filename, sort, include_pwr_gnd, 
+    exclude_not_in_lib, remove_cells, network
+  );
   delete remove_cells;
 }
+
+
 
 %} // inline

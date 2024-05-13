@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 
 #include "Path.hh"
 
+#include "TimingRole.hh"
 #include "TimingArc.hh"
 #include "Network.hh"
 #include "Graph.hh"
@@ -339,11 +340,15 @@ Path::cmpAll(const Path *path1,
     if (cmp != 0)
       return cmp;
 
-    p1.prevPath(sta, p1);
-    p2.prevPath(sta, p2);
+    TimingArc *prev_arc1, *prev_arc2;
+    p1.prevPath(sta, p1, prev_arc1);
+    p2.prevPath(sta, p2, prev_arc2);
     if (equal(&p1, path1, sta))
       // Equivalent latch loops.
       return 0;
+    if ((prev_arc1 && prev_arc1->role()->isLatchDtoQ())
+        || (prev_arc2 && prev_arc2->role()->isLatchDtoQ()))
+      break;
   }
   if (p1.isNull() && p2.isNull())
     return 0;

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@ void
 writeVerilog(const char *filename,
 	     bool sort,
 	     bool include_pwr_gnd,
+	     bool exclude_not_in_lib,
 	     CellSeq *remove_cells,
 	     Network *network);
 

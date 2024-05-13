@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -61,8 +61,7 @@ UnitDelayCalc::inputPortDelay(const Pin *,
 }
 
 void
-UnitDelayCalc::gateDelay(const LibertyCell *,
-			 const TimingArc *,
+UnitDelayCalc::gateDelay(const TimingArc *,
 			 const Slew &,
 			 float,
 			 const Parasitic *,
@@ -76,6 +75,29 @@ UnitDelayCalc::gateDelay(const LibertyCell *,
 }
 
 void
+UnitDelayCalc::findParallelGateDelays(const MultiDrvrNet *,
+                                      GraphDelayCalc *)
+{
+}
+
+void
+UnitDelayCalc::parallelGateDelay(const Pin *,
+                                 const TimingArc *,
+                                 const Slew &,
+                                 float,
+                                 const Parasitic *,
+                                 float,
+                                 const Pvt *,
+                                 const DcalcAnalysisPt *,
+                                 // Return values.
+                                 ArcDelay &gate_delay,
+                                 Slew &gate_slew)
+{
+  gate_delay = units_->timeUnit()->scale();
+  gate_slew = 0.0;
+}
+
+void
 UnitDelayCalc::loadDelay(const Pin *,
 			 ArcDelay &wire_delay,
 			 Slew &load_slew)
@@ -85,8 +107,7 @@ UnitDelayCalc::loadDelay(const Pin *,
 }
 
 float
-UnitDelayCalc::ceff(const LibertyCell *,
-		    const TimingArc *,
+UnitDelayCalc::ceff(const TimingArc *,
 		    const Slew &,
 		    float,
 		    const Parasitic *,
@@ -97,25 +118,23 @@ UnitDelayCalc::ceff(const LibertyCell *,
   return 0.0;
 }
 
-void
-UnitDelayCalc::reportGateDelay(const LibertyCell *,
-			       const TimingArc *,
+string
+UnitDelayCalc::reportGateDelay(const TimingArc *,
 			       const Slew &,
 			       float,
 			       const Parasitic *,
 			       float,
 			       const Pvt *,
 			       const DcalcAnalysisPt *,
-			       int,
-			       string *result)
+			       int)
 {
-  *result += "Delay = 1.0\n";
-  *result += "Slew = 0.0\n";
+  string result("Delay = 1.0\n");
+  result += "Slew = 0.0\n";
+  return result;
 }
 
 void
-UnitDelayCalc::checkDelay(const LibertyCell *,
-			  const TimingArc *,
+UnitDelayCalc::checkDelay(const TimingArc *,
 			  const Slew &,
 			  const Slew &,
 			  float,
@@ -127,19 +146,17 @@ UnitDelayCalc::checkDelay(const LibertyCell *,
   margin = units_->timeUnit()->scale();
 }
 
-void
-UnitDelayCalc::reportCheckDelay(const LibertyCell *,
-				const TimingArc *,
+string
+UnitDelayCalc::reportCheckDelay(const TimingArc *,
 				const Slew &,
 				const char *,
 				const Slew &,
 				float,
 				const Pvt *,
 				const DcalcAnalysisPt *,
-				int,
-				string *result)
+				int)
 {
-  *result += "Check = 1.0\n";
+  return "Check = 1.0\n";
 }
 
 void

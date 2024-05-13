@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -96,6 +96,7 @@ public:
   unsigned threadCount() const { return thread_count_; }
   bool pocvEnabled() const { return pocv_enabled_; }
   float sigmaFactor() const { return sigma_factor_; }
+  Graph*& getGraph() { return graph_; }
 
 protected:
   Report *report_;

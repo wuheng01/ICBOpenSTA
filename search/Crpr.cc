@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -402,7 +402,7 @@ CheckCrpr::crprPossible(const Clock *clk1,
 	|| clk1->isGenerated()
 	|| clk2->isGenerated()
 	// Different non-generated clocks with the same source pins (using -add).
-	|| PinSet::intersects(clk1->pins(), clk2->pins()));
+	|| PinSet::intersects(&clk1->pins(), &clk2->pins(), network_));
 }
 
 } // namespace

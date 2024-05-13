@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -180,26 +180,6 @@ proc report_lib_cell_ { cell corner } {
       set func " function=$func"
     }
     report_line " $port_name [liberty_port_direction $port]$enable$func[port_capacitance_str $port $corner $sta_report_default_digits]"
-  }
-  $iter finish
-}
-
-proc report_cell_ { cell } {
-  set lib [$cell library]
-  report_line "Cell [get_name $cell]"
-  report_line "Library [get_name $lib]"
-  set filename [liberty_cell_property $cell "filename"]
-  if { $filename != "" } {
-    report_line "File $filename"
-  }
-  set iter [$cell port_iterator]
-  while {[$iter has_next]} {
-    set port [$iter next]
-    if { [$port is_bus] } {
-      report_line " [$port bus_name] [port_direction $port]"
-    } else {
-      report_line " [get_name $port] [port_direction $port]"
-    }
   }
   $iter finish
 }

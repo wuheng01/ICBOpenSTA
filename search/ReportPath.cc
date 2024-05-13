@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -122,7 +122,7 @@ ReportPath::ReportPath(StaState *sta) :
 {
   setDigits(2);
   makeFields();
-  setReportFields(false, false, false, false);
+  setReportFields(false, false, false, false, false);
 }
 
 ReportPath::~ReportPath()
@@ -224,7 +224,8 @@ void
 ReportPath::setReportFields(bool report_input_pin,
 			    bool report_net,
 			    bool report_cap,
-			    bool report_slew)
+			    bool report_slew,
+                            bool report_fanout)
 {
   report_input_pin_ = report_input_pin;
   report_net_ = report_net;
@@ -232,6 +233,7 @@ ReportPath::setReportFields(bool report_input_pin,
   field_fanout_->setEnabled(report_net_);
   field_capacitance_->setEnabled(report_cap);
   field_slew_->setEnabled(report_slew);
+  field_fanout_->setEnabled(report_fanout);
   // for debug
   field_case_->setEnabled(false);
 }
@@ -253,10 +255,8 @@ ReportPath::setDigits(int digits)
 {
   digits_ = digits;
 
-  if (plus_zero_) {
-    stringDelete(plus_zero_);
-    stringDelete(minus_zero_);
-  }
+  stringDelete(plus_zero_);
+  stringDelete(minus_zero_);
   minus_zero_ = stringPrint("-%.*f", digits_, 0.0);
   plus_zero_  = stringPrint("%.*f", digits_, 0.0);
 }
@@ -2650,13 +2650,16 @@ ReportPath::reportPath5(const Path *path,
 	      && !prev_arc->role()->isWire())) {
 	bool is_driver = network_->isDriver(pin);
 	float cap = field_blank_;
+        float fanout = field_blank_;
 	// Don't show capacitance field for input pins.
 	if (is_driver && field_capacitance_->enabled())
 	  cap = loadCap(pin, rf, dcalc_ap);
+	// Don't show fanout field for input pins.
+	if (is_driver && field_fanout_->enabled())
+	  fanout = drvrFanout(vertex, dcalc_ap->corner(), min_max);
 	auto what = descriptionField(vertex);
 	if (report_net_ && is_driver) {
-	  // Capacitance field is reported on the net line.
-	  reportLine(what.c_str(), field_blank_, slew, field_blank_,
+	  reportLine(what.c_str(), cap, slew, fanout,
 		     incr, time, false, min_max, rf, line_case);
 	  string what2;
 	  if (network_->isTopLevelPort(pin)) {
@@ -2673,13 +2676,12 @@ ReportPath::reportPath5(const Path *path,
 	    else
 	      what2 = "(unconnected)";
 	  }
-	  float fanout = drvrFanout(vertex, dcalc_ap->corner(), min_max);
-	  reportLine(what2.c_str(), cap, field_blank_, fanout,
+	  reportLine(what2.c_str(), field_blank_, field_blank_, field_blank_,
 		     field_blank_, field_blank_, false, min_max,
                      nullptr, line_case);
 	}
 	else
-	  reportLine(what.c_str(), cap, slew, field_blank_,
+	  reportLine(what.c_str(), cap, slew, fanout,
 		     incr, time, false, min_max, rf, line_case);
 	prev_time = time;
       }
@@ -3164,11 +3166,16 @@ ReportPath::reportField(float value,
     reportFieldBlank(field, line);
   else {
     Unit *unit = field->unit();
-    const char *value_str = (unit)
-      ? unit->asString(value, digits_)
+    if (unit) {
+      const char *value_str = unit->asString(value, digits_);
+      reportField(value_str, field, line);
+    }
+    else {
       // fanout
-      : stringPrintTmp("%.0f", value);
-    reportField(value_str, field, line);
+      string value_str;
+      stringPrint(value_str, "%.0f", value);
+      reportField(value_str.c_str(), field, line);
+    }
   }
 }
 

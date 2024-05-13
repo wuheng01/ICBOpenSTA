@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -454,7 +454,6 @@ proc get_cells { args } {
 
   parse_key_args "get_cells" args keys {-hsc -filter -of_objects} \
     flags {-hierarchical -regexp -nocase -quiet}
-  check_argc_eq0or1 "get_cells" $args
   check_nocase_flag flags
 
   set regexp [info exists flags(-regexp)]
@@ -493,23 +492,29 @@ proc get_cells { args } {
       $pin_iter finish
     }
   } else {
-    if { $args == {} } {
-      set insts [network_leaf_instances]
-    } else {
-      foreach pattern $patterns {
-	if { $divider != $hierarchy_separator } {
-	  regsub $divider $pattern $hierarchy_separator pattern
-	}
-	if { $hierarchical } {
-	  set matches [find_instances_hier_matching $pattern $regexp $nocase]
-	} else {
-	  set matches [find_instances_matching $pattern $regexp $nocase]
-	}
-	if { $matches == {} && !$quiet} {
-	  sta_warn 322 "instance '$pattern' not found."
-	}
-	set insts [concat $insts $matches]
+    check_argc_eq1 "get_cells" $args
+    foreach pattern $patterns {
+      if { $divider != $hierarchy_separator } {
+        regsub $divider $pattern $hierarchy_separator pattern
       }
+      if { $hierarchical } {
+        set matches [find_instances_hier_matching $pattern $regexp $nocase]
+      } else {
+        set matches [find_instances_matching $pattern $regexp $nocase]
+      }
+      set insts [concat $insts $matches]
+      if { $matches == {} } {
+          # run icb namematch
+          global disable_icbsdc_path_finding
+          if {[info exists disable_icbsdc_path_finding] == 0 ||
+              $disable_icbsdc_path_finding != 1 } {
+            set matches [find_instances_matching_icb $pattern $regexp $nocase]
+	    if { $matches == {} && !$quiet} {
+	      sta_warn 322 "instance '$pattern' not found."
+	    }
+	    set insts [concat $insts $matches]
+          }
+        }
     }
   }
   if [info exists keys(-filter)] {
@@ -586,7 +591,6 @@ proc get_lib_cells { args } {
   global hierarchy_separator
   parse_key_args "get_lib_cells" args keys {-hsc -of_objects} \
     flags {-regexp -nocase -quiet}
-  check_argc_eq0or1 "get_lib_cells" $args
   check_nocase_flag flags
 
   set regexp [info exists flags(-regexp)]
@@ -601,6 +605,7 @@ proc get_lib_cells { args } {
       lappend cells [$inst liberty_cell]
     }
   } else {
+    check_argc_eq1 "get_lib_cells" $args
     # Copy backslashes that will be removed by foreach.
     set patterns [string map {\\ \\\\} [lindex $args 0]]
     # Parse library_name/pattern.
@@ -838,7 +843,7 @@ proc get_nets { args } {
 
 define_cmd_args "get_pins" \
   {[-hierarchical] [-hsc separator] [-quiet] [-filter expr]\
-     [-regexp] [-nocase] [-of_objects objects] patterns}
+     [-regexp] [-nocase] [-of_objects objects] [patterns]}
 
 define_cmd_alias "get_pin" "get_pins"
 
@@ -892,8 +897,17 @@ proc get_pins { args } {
 	set matches [find_pins_matching $pattern $regexp $nocase]
       }
       set pins [concat $pins $matches]
-      if { $matches == {} && !$quiet } {
-	sta_warn 335 "pin '$pattern' not found."
+      if { $matches == {} } {
+    # run icb namematch
+        global disable_icbsdc_path_finding
+        if {[info exists disable_icbsdc_path_finding] == 0 ||
+            $disable_icbsdc_path_finding != 1 } {
+          set matches [find_pins_matching_icb $pattern $regexp $nocase]
+          if { $matches == {} && !$quiet } {
+	          sta_warn 335 "pin '$pattern' not found."
+          }
+          set pins [concat $pins $matches]
+        }
       }
     }
   }
@@ -952,7 +966,7 @@ proc get_ports { args } {
     if { $args != {} } {
       sta_warn 336 "patterns argument not supported with -of_objects."
     }
-    set nets [get_nets_warn "objects" $keys(-of_objects)]
+    set nets [get_nets_arg "objects" $keys(-of_objects)]
     foreach net $nets {
       set ports [concat $ports [$net ports]]
     }
@@ -975,7 +989,7 @@ proc get_ports { args } {
   return $ports
 }
 
-variable filter_regexp1 {@?([a-zA-Z_]+) *(==|=~) *([0-9a-zA-Z_\*]+)}
+variable filter_regexp1 {@?([a-zA-Z_]+) *(==|!=|=~) *([0-9a-zA-Z_\*]+)}
 variable filter_or_regexp "($filter_regexp1) +\\|\\| +($filter_regexp1)"
 variable filter_and_regexp "($filter_regexp1) +&& +($filter_regexp1)"
 
@@ -3172,7 +3186,7 @@ proc set_resistance { args } {
   set res [lindex $args 0]
   check_positive_float "resistance" $res
   set res [resistance_ui_sta $res]
-  set nets [get_nets_error "nets" [lindex $args 1]]
+  set nets [get_nets_arg "nets" [lindex $args 1]]
   foreach net $nets {
     set_net_resistance $net $min_max $res
   }
@@ -3593,6 +3607,33 @@ proc set_wire_load_selection_group { args } {
 # Multivoltage and Power Optimization Commands
 #
 ################################################################
+
+define_cmd_args "set_voltage" \
+  {[-min min_case_value] [-object_list list_of_power_nets] max_case_voltage}
+
+proc set_voltage { args } {
+  parse_key_args "set_voltage" args keys {-min -object_list} flags {}
+  check_argc_eq1 "set_voltage" $args
+  set max_case_voltage [lindex $args 0]
+  check_float "max_case_voltage" $max_case_voltage
+
+  set nets {}
+  if { [info exists keys(-object_list)] } {
+    set nets [get_nets_arg "-object_list" $keys(-object_list)]
+  }
+  set_voltage_global "max" $max_case_voltage
+  foreach net $nets {
+    set_voltage_net $net "max" $max_case_voltage
+  }
+  if { [info exists keys(-min)] } {
+    set min_case_voltage $keys(-min)
+    check_float "-min" $min_case_voltage
+    set_voltage_global "min" $min_case_voltage
+    foreach net $nets {
+      set_voltage_net $net "min" $min_case_voltage
+    }
+  }
+}
 
 define_cmd_args "create_voltage_area" \
   {[-name name] [-coordinate coordinates] [-guard_band_x guard_x]\

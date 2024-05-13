@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -118,8 +118,8 @@ void
 Clock::makeClkEdges()
 {
   clk_edges_ = new ClockEdge*[RiseFall::index_count];
-  for (auto tr : RiseFall::range()) {
-    clk_edges_[tr->index()] = new ClockEdge(this, tr);
+  for (auto rf : RiseFall::range()) {
+    clk_edges_[rf->index()] = new ClockEdge(this, rf);
   }
 }
 

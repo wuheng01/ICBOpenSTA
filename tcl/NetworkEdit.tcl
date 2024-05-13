@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ proc make_instance { inst_path lib_cell } {
 
 ################################################################
 
-define_cmd_args "make_net" {}
+define_cmd_args "make_net" {net_path}
 
 proc make_net { net_path } {
   # Copy backslashes that will be removed by foreach.
@@ -65,6 +65,14 @@ proc make_net { net_path } {
 
 ################################################################
 
+define_cmd_args "make_port" {port_name direction}
+
+proc make_port { port_name direction } {
+  make_port_pin_cmd $port_name $direction
+}
+
+################################################################
+
 define_cmd_args "connect_pin" {net pin}
 
 proc connect_pin { net pin } {
@@ -72,7 +80,7 @@ proc connect_pin { net pin } {
   if { $insts_port == 0 } {
     return 0
   }
-  set net [get_net_warn "net" $net]
+  set net [get_net_arg "net" $net]
   if { $net == "NULL" } {
     return 0
   }
@@ -132,7 +140,7 @@ proc connect_pins { net pins } {
   if { $insts_ports == 0 } {
     return 0
   }
-  set net [get_net_warn "net" $net]
+  set net [get_net_arg "net" $net]
   if { $net == "NULL" } {
     return 0
   }
@@ -162,7 +170,7 @@ proc parse_connect_pins { arg } {
 define_cmd_args "disconnect_pin" {net -all|pin}
 
 proc disconnect_pin { net pin } {
-  set net [get_net_warn "net" $net]
+  set net [get_net_arg "net" $net]
   if { $net == "NULL" } {
     return 0
   }

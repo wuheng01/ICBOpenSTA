@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -167,6 +167,7 @@ typedef Set<ClkHpinDisable*, ClkHpinDisableLess> ClkHpinDisables;
 typedef Set<GroupPath*, ExceptionPathLess> GroupPathSet;
 typedef Map<const char*, GroupPathSet*, CharPtrLess> GroupPathMap;
 typedef Set<ClockPair, ClockPairLess> ClockPairSet;
+typedef Map<const Net*, MinMaxFloatValues> NetVoltageMap;
 
 void
 findLeafLoadPins(const Pin *pin,
@@ -184,6 +185,7 @@ public:
   ~Sdc();
   // Note that Search may reference a Filter exception removed by clear().
   void clear();
+  void makeCornersBefore();
   void makeCornersAfter(Corners *corners);
   // Return true if pin is referenced by any constraint.
   bool isConstrained(const Pin *pin) const;
@@ -583,6 +585,8 @@ public:
 			 float cap);
   static void movePortExtCaps(Sdc *from,
                               Sdc *to);
+  // Remove all "set_load net" annotations.
+  void removeNetLoadCaps();
   void setNetWireCap(const Net *net,
 		     bool subtract_pin_cap,
 		     const Corner *corner,
@@ -823,11 +827,26 @@ public:
   // Returns nullptr if set_operating_conditions has not been called.
   OperatingConditions *operatingConditions(const MinMax *min_max);
   // Instance specific process/voltage/temperature.
-  const Pvt *pvt(Instance *inst, const MinMax *min_max) const;
+  const Pvt *pvt(const Instance *inst,
+                 const MinMax *min_max) const;
   // Pvt may be shared among multiple instances.
   void setPvt(const Instance *inst,
 	      const MinMaxAll *min_max,
 	      const Pvt &pvt);
+  void voltage(const MinMax *min_max,
+               // Return values.
+               float &voltage,
+               bool &exists);
+  void voltage(const Net *net,
+               const MinMax *min_max,
+               // Return values.
+               float &voltage,
+               bool &exists);
+  void setVoltage(const MinMax *min_max,
+                  float voltage);
+  void setVoltage(const Net *net,
+                  const MinMax *min_max,
+                  float voltage);
   InputDrive *findInputDrive(Port *port);
   Clock *findClock(const char *name) const;
   virtual ClockSeq findClocksMatching(PatternMatch *pattern) const;
@@ -933,7 +952,7 @@ public:
 		    float &pin_cap,
 		    float &wire_cap,
 		    float &fanout,
-		    bool &has_set_load) const;
+		    bool &has_net_load) const;
   void portExtFanout(const Port *port,
                      const Corner *corner,
 		     const MinMax *min_max,
@@ -1025,6 +1044,7 @@ public:
 			  const Pin *load);
   void ensureClkHpinDisables();
   bool bidirectDrvrSlewFromLoad(const Pin *pin) const;
+  const ClockGroupsNameMap& clockGroupsNameMap() const { return clk_groups_name_map_; }
 
 protected:
   void initVariables();
@@ -1219,8 +1239,7 @@ protected:
 	       const MinMax *min_max,
 	       float &pin_cap,
 	       float &wire_cap,
-	       float &fanout,
-	       bool &has_ext_cap) const;
+	       float &fanout) const;
   void netCaps(const Pin *drvr_pin,
 	       const RiseFall *rf,
 	       const OperatingConditions *op_cond,
@@ -1230,7 +1249,7 @@ protected:
 	       float &pin_cap,
 	       float &wire_cap,
 	       float &fanout,
-	       bool &has_set_load) const;
+               bool &has_net_load) const;
   // connectedCap pin_cap.
   float connectedPinCap(const Pin *pin,
 			const RiseFall *rf,
@@ -1265,6 +1284,8 @@ protected:
   AnalysisType analysis_type_;
   OperatingConditions *operating_conditions_[MinMax::index_count];
   InstancePvtMap instance_pvt_maps_[MinMax::index_count];
+  MinMaxFloatValues voltages_;
+  NetVoltageMap net_voltage_map_;
   DeratingFactorsGlobal *derating_factors_;
   NetDeratingFactorsMap net_derating_factors_;
   InstDeratingFactorsMap inst_derating_factors_;

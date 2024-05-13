@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 #pragma once
 
 #include "LibertyClass.hh"
-#include "RCDelayCalc.hh"
+#include "LumpedCapDelayCalc.hh"
 
 namespace sta {
 
@@ -29,7 +29,7 @@ class GateTableModel;
 
 // Delay calculator using Dartu/Menezes/Pileggi effective capacitance
 // algorithm for RSPF loads.
-class DmpCeffDelayCalc : public RCDelayCalc
+class DmpCeffDelayCalc : public LumpedCapDelayCalc
 {
 public:
   DmpCeffDelayCalc(StaState *sta);
@@ -39,8 +39,7 @@ public:
 			      const RiseFall *rf,
 			      const Parasitic *parasitic,
 			      const DcalcAnalysisPt *dcalc_ap);
-  virtual void gateDelay(const LibertyCell *drvr_cell,
-			 const TimingArc *arc,
+  virtual void gateDelay(const TimingArc *arc,
 			 const Slew &in_slew,
 			 float load_cap,
 			 const Parasitic *drvr_parasitic,
@@ -50,24 +49,21 @@ public:
 			 // return values
 			 ArcDelay &gate_delay,
 			 Slew &drvr_slew);
-  virtual float ceff(const LibertyCell *drvr_cell,
-		     const TimingArc *arc,
+  virtual float ceff(const TimingArc *arc,
 		     const Slew &in_slew,
 		     float load_cap,
 		     const Parasitic *drvr_parasitic,
 		     float related_out_cap,
 		     const Pvt *pvt,
 		     const DcalcAnalysisPt *dcalc_ap);
-  virtual void reportGateDelay(const LibertyCell *drvr_cell,
-			       const TimingArc *arc,
-			       const Slew &in_slew,
-			       float load_cap,
-			       const Parasitic *drvr_parasitic,
-			       float related_out_cap,
-			       const Pvt *pvt,
-			       const DcalcAnalysisPt *dcalc_ap,
-			       int digits,
-			       string *result);
+  virtual string reportGateDelay(const TimingArc *arc,
+                                 const Slew &in_slew,
+                                 float load_cap,
+                                 const Parasitic *drvr_parasitic,
+                                 float related_out_cap,
+                                 const Pvt *pvt,
+                                 const DcalcAnalysisPt *dcalc_ap,
+                                 int digits);
   virtual void copyState(const StaState *sta);
 
 protected:
@@ -89,7 +85,6 @@ protected:
 			double rpi,
 			double c1);
 
-  bool input_port_;
   static bool unsuppored_model_warned_;
 
 private:

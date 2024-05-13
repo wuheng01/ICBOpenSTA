@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -800,8 +800,7 @@ PathGroups::makeGroupPathEnds(ExceptionTo *to,
   else {
     // Only visit -to filter pins.
     VertexSet endpoints(graph_);
-    PinSet pins(network);
-    to->allPins(network, &pins);
+    PinSet pins = to->allPins(network);
     PinSet::Iterator pin_iter(pins);
     while (pin_iter.hasNext()) {
       const Pin *pin = pin_iter.next();

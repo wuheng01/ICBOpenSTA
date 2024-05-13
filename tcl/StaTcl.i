@@ -3,7 +3,7 @@
 %{
 
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -49,6 +49,7 @@
 #include "Transition.hh"
 #include "TimingRole.hh"
 #include "TimingArc.hh"
+#include "TableModel.hh"
 #include "Liberty.hh"
 #include "LibertyWriter.hh"
 #include "EquivCells.hh"
@@ -79,6 +80,8 @@
 #include "search/CheckMinPulseWidths.hh"
 #include "search/Levelize.hh"
 #include "search/ReportPath.hh"
+// #include "search/Power.hh"
+#include "verilog/VerilogReaderPvt.hh"
 
 namespace sta {
 
@@ -253,6 +256,26 @@ tclListSeqConstChar(Tcl_Obj *const source,
     return nullptr;
 }
 
+StdStringSet *
+tclListSetStdString(Tcl_Obj *const source,
+		    Tcl_Interp *interp)
+{
+  int argc;
+  Tcl_Obj **argv;
+
+  if (Tcl_ListObjGetElements(interp, source, &argc, &argv) == TCL_OK) {
+    StdStringSet *set = new StdStringSet;
+    for (int i = 0; i < argc; i++) {
+      int length;
+      const char *str = Tcl_GetStringFromObj(argv[i], &length);
+      set->insert(str);
+    }
+    return set;
+  }
+  else
+    return nullptr;
+}
+
 ////////////////////////////////////////////////////////////////
 
 // Sequence out to tcl list.
@@ -402,6 +425,13 @@ using namespace sta;
 ////////////////////////////////////////////////////////////////
 
 // String that is deleted after crossing over to tcland.
+%typemap(out) string {
+  string &str = $1;
+  // String is volatile because it is deleted.
+  Tcl_SetResult(interp, const_cast<char*>(str.c_str()), TCL_VOLATILE);
+}
+
+// String that is deleted after crossing over to tcland.
 %typemap(out) TmpString* {
   string *str = $1;
   if (str) {
@@ -415,6 +445,10 @@ using namespace sta;
 
 %typemap(in) StringSeq* {
   $1 = tclListSeqConstChar($input, interp);
+}
+
+%typemap(in) StdStringSet* {
+  $1 = tclListSetStdString($input, interp);
 }
 
 %typemap(out) StringSeq* {
@@ -567,13 +601,13 @@ using namespace sta;
 %typemap(in) RiseFall* {
   int length;
   const char *arg = Tcl_GetStringFromObj($input, &length);
-  RiseFall *tr = RiseFall::find(arg);
-  if (tr == nullptr) {
-    Tcl_SetResult(interp,const_cast<char*>("Error: unknown transition name."),
+  RiseFall *rf = RiseFall::find(arg);
+  if (rf == nullptr) {
+    Tcl_SetResult(interp,const_cast<char*>("Error: unknown rise/fall edge."),
 		  TCL_STATIC);
     return TCL_ERROR;
   }
-  $1 = tr;
+  $1 = rf;
 }
 
 %typemap(out) RiseFall* {
@@ -873,6 +907,46 @@ using namespace sta;
     }
   }
   $1 = ints;
+}
+
+%typemap(out) Table1 {
+  Table1 &table = $1;
+  if (table.axis1()) {
+    Tcl_Obj *list3 = Tcl_NewListObj(0, nullptr);
+    Tcl_Obj *list1 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table.axis1()->values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list1, obj);
+    }
+    Tcl_Obj *list2 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table.values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list2, obj);
+    }
+    Tcl_ListObjAppendElement(interp, list3, list1);
+    Tcl_ListObjAppendElement(interp, list3, list2);
+    Tcl_SetObjResult(interp, list3);
+  }
+}
+
+%typemap(out) const Table1* {
+  const Table1 *table = $1;
+  Tcl_Obj *list3 = Tcl_NewListObj(0, nullptr);
+  if (table) {
+    Tcl_Obj *list1 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table->axis1()->values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list1, obj);
+    }
+    Tcl_Obj *list2 = Tcl_NewListObj(0, nullptr);
+    for (float f : *table->values()) {
+      Tcl_Obj *obj = Tcl_NewDoubleObj(f);
+      Tcl_ListObjAppendElement(interp, list2, obj);
+    }
+    Tcl_ListObjAppendElement(interp, list3, list1);
+    Tcl_ListObjAppendElement(interp, list3, list2);
+  }
+  Tcl_SetObjResult(interp, list3);
 }
 
 %typemap(in) MinMax* {
@@ -2276,6 +2350,27 @@ find_pins_hier_matching(const char *pattern,
   return matches;
 }
 
+PinSeq
+find_pins_matching_icb(const char *pattern,
+			bool regexp,
+			bool nocase)
+{
+  Sta *sta = Sta::sta();
+  Network *network = cmdLinkedNetwork();
+
+  std::vector<std::string> results;
+  sta->icbNamematch(pattern, results);
+
+  PinSeq pins;
+  for (size_t i = 0; i < results.size(); ++i) {
+    Instance *current_instance = sta->currentInstance();
+    PatternMatch matcher(results[i].c_str(), regexp, nocase, Sta::sta()->tclInterp());  
+    PinSeq tmp = network->findPinsHierMatching(current_instance, &matcher);
+    pins.insert(pins.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
+  }
+  return pins;
+}
+
 Instance *
 find_instance(char *path_name)
 {
@@ -2293,6 +2388,25 @@ network_leaf_instances()
   }
   delete iter;
   return insts;
+}
+
+InstanceSeq
+find_instances_matching_icb(const char *pattern,
+			bool regexp,
+			bool nocase)
+{
+  Sta *sta = Sta::sta();
+  std::vector<std::string> results;
+  sta->icbNamematch(pattern, results);
+  
+  InstanceSeq matches;
+  for (size_t i = 0; i < results.size(); ++i) {
+    Instance *current_instance = sta->currentInstance();
+    PatternMatch matcher(results[i].c_str(), regexp, nocase, sta->tclInterp());
+    InstanceSeq tmp = cmdLinkedNetwork()->findInstancesMatching(current_instance, &matcher);
+    matches.insert(matches.end(), std::make_move_iterator(tmp.begin()), std::make_move_iterator(tmp.end()));
+  }
+  return matches;
 }
 
 InstanceSeq
@@ -2423,18 +2537,23 @@ filter_ports(const char *property,
 	     const char *pattern,
 	     PortSeq *ports)
 {
-  Sta *sta = Sta::sta();
   PortSeq filtered_ports;
-  bool exact_match = stringEq(op, "==");
-  for (const Port *port : *ports) {
-    PropertyValue value(getProperty(port, property, sta));
-    const char *prop = value.stringValue();
-    if (prop &&
-	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_ports.push_back(port);
+  if (ports) {
+    Sta *sta = Sta::sta();
+    bool exact_match = stringEq(op, "==");
+    bool pattern_match = stringEq(op, "=~");
+    bool not_match = stringEq(op, "!=");
+    for (const Port *port : *ports) {
+      PropertyValue value(getProperty(port, property, sta));
+      const char *prop = value.stringValue();
+      if (prop &&
+          ((exact_match && stringEq(prop, pattern))
+           || (not_match && !stringEq(prop, pattern))
+           || (pattern_match && patternMatch(pattern, prop))))
+        filtered_ports.push_back(port);
+    }
+    delete ports;
   }
-  delete ports;
   return filtered_ports;
 }
 
@@ -2444,19 +2563,24 @@ filter_insts(const char *property,
 	     const char *pattern,
 	     InstanceSeq *insts)
 {
-  Sta *sta = Sta::sta();
-  cmdLinkedNetwork();
-  bool exact_match = stringEq(op, "==");
   InstanceSeq filtered_insts;
-  for (const Instance *inst : *insts) {
-    PropertyValue value(getProperty(inst, property, sta));
-    const char *prop = value.stringValue();
-    if (prop &&
-	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_insts.push_back(inst);
+  if (insts) {
+    Sta *sta = Sta::sta();
+    cmdLinkedNetwork();
+    bool exact_match = stringEq(op, "==");
+    bool pattern_match = stringEq(op, "=~");
+    bool not_match = stringEq(op, "!=");
+    for (const Instance *inst : *insts) {
+      PropertyValue value(getProperty(inst, property, sta));
+      const char *prop = value.stringValue();
+      if (prop &&
+          ((exact_match && stringEq(prop, pattern))
+           || (not_match && !stringEq(prop, pattern))
+           || (pattern_match && patternMatch(pattern, prop))))
+        filtered_insts.push_back(inst);
+    }
+    delete insts;
   }
-  delete insts;
   return filtered_insts;
 }
 
@@ -2466,18 +2590,23 @@ filter_pins(const char *property,
 	    const char *pattern,
 	    PinSeq *pins)
 {
-  Sta *sta = Sta::sta();
   PinSeq filtered_pins;
-  bool exact_match = stringEq(op, "==");
-  for (const Pin *pin : *pins) {
-    PropertyValue value(getProperty(pin, property, sta));
-    const char *prop = value.stringValue();
-    if (prop &&
-	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
-      filtered_pins.push_back(pin);
+  if (pins) {
+    Sta *sta = Sta::sta();
+    bool exact_match = stringEq(op, "==");
+    bool pattern_match = stringEq(op, "=~");
+    bool not_match = stringEq(op, "!=");
+    for (const Pin *pin : *pins) {
+      PropertyValue value(getProperty(pin, property, sta));
+      const char *prop = value.stringValue();
+      if (prop &&
+          ((exact_match && stringEq(prop, pattern))
+           || (not_match && !stringEq(prop, pattern))
+           || (pattern_match && patternMatch(pattern, prop))))
+        filtered_pins.push_back(pin);
+    }
+    delete pins;
   }
-  delete pins;
   return filtered_pins;
 }
 
@@ -2675,12 +2804,15 @@ filter_timing_arcs(const char *property,
   Sta *sta = Sta::sta();
   EdgeSeq filtered_edges;
   bool exact_match = stringEq(op, "==");
+  bool pattern_match = stringEq(op, "=~");
+  bool not_match = stringEq(op, "!=");
   for (Edge *edge : *edges) {
     PropertyValue value(getProperty(edge, property, sta));
     const char *prop = value.stringValue();
     if (prop &&
 	((exact_match && stringEq(prop, pattern))
-	 || (!exact_match && patternMatch(pattern, prop))))
+         || (not_match && !stringEq(prop, pattern))
+	 || (pattern_match && patternMatch(pattern, prop))))
       filtered_edges.push_back(edge);
   }
   delete edges;
@@ -3738,6 +3870,14 @@ format_voltage(const char *value,
 }
 
 const char *
+format_current(const char *value,
+	       int digits)
+{
+  float value1 = strtof(value, nullptr);
+  return Sta::sta()->units()->currentUnit()->asString(value1, digits);
+}
+
+const char *
 format_power(const char *value,
 	     int digits)
 {
@@ -3897,11 +4037,11 @@ set_cmd_unit_suffix(const char *unit_name,
 }
 
 const char *
-unit_scale_abreviation(const char *unit_name)
+unit_scale_abbreviation (const char *unit_name)
 {
   Unit *unit = Sta::sta()->units()->find(unit_name);
   if (unit)
-    return unit->scaleAbreviation();
+    return unit->scaleAbbreviation();
   else
     return "";
 }
@@ -3912,6 +4052,16 @@ unit_suffix(const char *unit_name)
   Unit *unit = Sta::sta()->units()->find(unit_name);
   if (unit)
     return unit->suffix();
+  else
+    return "";
+}
+
+const char *
+unit_scaled_suffix(const char *unit_name)
+{
+  Unit *unit = Sta::sta()->units()->find(unit_name);
+  if (unit)
+    return unit->scaledSuffix();
   else
     return "";
 }
@@ -4235,12 +4385,14 @@ void
 set_report_path_fields(bool report_input_pin,
 		       bool report_net,
 		       bool report_cap,
-		       bool report_slew)
+		       bool report_slew,
+                       bool report_fanout)
 {
   Sta::sta()->setReportPathFields(report_input_pin,
 				  report_net,
 				  report_cap,
-				  report_slew);
+				  report_slew,
+                                  report_fanout);
 }
 
 void
@@ -4574,17 +4726,6 @@ find_clk_min_period(const Clock *clk,
   return sta->findClkMinPeriod(clk, ignore_port_paths);
 }
 
-TmpString *
-report_delay_calc_cmd(Edge *edge,
-		      TimingArc *arc,
-		      const Corner *corner,
-		      const MinMax *min_max,
-		      int digits)
-{
-  cmdLinkedNetwork();
-  return Sta::sta()->reportDelayCalc(edge, arc, corner, min_max, digits);
-}
-
 ////////////////////////////////////////////////////////////////
 
 PinSeq
@@ -4594,6 +4735,7 @@ check_slew_limits(Net *net,
                   const MinMax *min_max)
 {
   cmdLinkedNetwork();
+//   return Sta::sta()->checkSlewLimitsSafe(net, violators, corner, min_max);
   return Sta::sta()->checkSlewLimits(net, violators, corner, min_max);
 }
 
@@ -4660,6 +4802,7 @@ check_fanout_limits(Net *net,
                     const MinMax *min_max)
 {
   cmdLinkedNetwork();
+//   return Sta::sta()->checkFanoutLimitsSafe(net, violators, min_max);
   return Sta::sta()->checkFanoutLimits(net, violators, min_max);
 }
 
@@ -4725,6 +4868,7 @@ check_capacitance_limits(Net *net,
                          const MinMax *min_max)
 {
   cmdLinkedNetwork();
+//   return Sta::sta()->checkCapacitanceLimitsSafe(net, violators, corner, min_max);
   return Sta::sta()->checkCapacitanceLimits(net, violators, corner, min_max);
 }
 
@@ -4810,13 +4954,15 @@ write_path_spice_cmd(PathRef *path,
 		     const char *subckt_filename,
 		     const char *lib_subckt_filename,
 		     const char *model_filename,
+                     StdStringSet *off_path_pins,
 		     const char *power_name,
 		     const char *gnd_name)
 {
   Sta *sta = Sta::sta();
   writePathSpice(path, spice_filename, subckt_filename,
-		 lib_subckt_filename, model_filename,
+		 lib_subckt_filename, model_filename, off_path_pins,
 		 power_name, gnd_name, sta);
+  delete off_path_pins;
 }
 
 void
@@ -5349,6 +5495,21 @@ endpoint_violation_count(const MinMax *min_max)
   return  Sta::sta()->endpointViolationCount(min_max);
 }
 
+void
+set_voltage_global(const MinMax *min_max,
+                   float voltage)
+{
+  Sta::sta()->setVoltage(min_max, voltage);
+}
+
+void
+set_voltage_net(const Net *net,
+                const MinMax *min_max,
+                float voltage)
+{
+  Sta::sta()->setVoltage(net, min_max, voltage);
+}
+
 %} // inline
 
 ////////////////////////////////////////////////////////////////
@@ -5589,6 +5750,9 @@ full_name()
 			to);
 }
 
+TimingArcSeq &
+timing_arcs() { return self->arcs(); }
+
 } // TimingArcSet methods
 
 %extend TimingArc {
@@ -5599,6 +5763,54 @@ const char *from_edge_name() { return self->fromEdge()->asRiseFall()->name(); }
 Transition *to_edge() { return self->toEdge(); }
 const char *to_edge_name() { return self->toEdge()->asRiseFall()->name(); }
 TimingRole *role() { return self->role(); }
+
+Table1
+voltage_waveform(float in_slew,
+                 float load_cap)
+{
+  GateTableModel *gate_model = dynamic_cast<GateTableModel*>(self->model());
+  if (gate_model) {
+    OutputWaveforms *waveforms = gate_model->outputWaveforms();
+    if (waveforms) {
+      Table1 waveform = waveforms->voltageWaveform(in_slew, load_cap);
+      return waveform;
+    }
+  }
+  return Table1();
+}
+
+const Table1 *
+current_waveform(float in_slew,
+                 float load_cap)
+{
+  GateTableModel *gate_model = dynamic_cast<GateTableModel*>(self->model());
+  if (gate_model) {
+    OutputWaveforms *waveforms = gate_model->outputWaveforms();
+    if (waveforms) {
+      const Table1 *waveform = waveforms->currentWaveform(in_slew, load_cap);
+      return waveform;
+    }
+  }
+  return nullptr;
+}
+
+float
+voltage_current(float in_slew,
+                float load_cap,
+                float voltage)
+{
+  GateTableModel *gate_model = dynamic_cast<GateTableModel*>(self->model());
+  if (gate_model) {
+    OutputWaveforms *waveforms = gate_model->outputWaveforms();
+    if (waveforms) {
+      waveforms->setVdd(.7);
+      float current = waveforms->voltageCurrent(in_slew, load_cap, voltage);
+      return current;
+    }
+  }
+  return 0.0;
+}
+
 } // TimingArc methods
 
 %extend Instance {
@@ -5835,7 +6047,7 @@ arrivals_clk(const RiseFall *rf,
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
     arrivals.push_back(delayAsFloat(sta->vertexArrival(self, rf, clk_edge,
-                                                       path_ap)));
+                                                       path_ap, nullptr)));
   }
   return arrivals;
 }
@@ -5853,7 +6065,7 @@ arrivals_clk_delays(const RiseFall *rf,
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
     arrivals.push_back(delayAsString(sta->vertexArrival(self, rf, clk_edge,
-                                                        path_ap),
+                                                        path_ap, nullptr),
                                      sta, digits));
   }
   return arrivals;
@@ -5865,15 +6077,15 @@ requireds_clk(const RiseFall *rf,
 	      const RiseFall *clk_rf)
 {
   Sta *sta = Sta::sta();
-  FloatSeq requires;
+  FloatSeq reqs;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    requires.push_back(delayAsFloat(sta->vertexRequired(self, rf, clk_edge,
-                                                      path_ap)));
+    reqs.push_back(delayAsFloat(sta->vertexRequired(self, rf, clk_edge,
+                                                    path_ap)));
   }
-  return requires;
+  return reqs;
 }
 
 StringSeq
@@ -5883,16 +6095,15 @@ requireds_clk_delays(const RiseFall *rf,
 		     int digits)
 {
   Sta *sta = Sta::sta();
-  StringSeq requireds;
+  StringSeq reqs;
   const ClockEdge *clk_edge = nullptr;
   if (clk)
     clk_edge = clk->edge(clk_rf);
   for (auto path_ap : sta->corners()->pathAnalysisPts()) {
-    requireds.push_back(delayAsString(sta->vertexRequired(self, rf, clk_edge,
-                                                          path_ap),
-                                      sta, digits));
+    reqs.push_back(delayAsString(sta->vertexRequired(self, rf, clk_edge, path_ap),
+                                 sta, digits));
   }
-  return requireds;
+  return reqs;
 }
 
 Slack

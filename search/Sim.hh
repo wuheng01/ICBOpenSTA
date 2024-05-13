@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -129,16 +129,14 @@ protected:
   InstanceSet instances_with_const_pins_;
   InstanceSet instances_to_annotate_;
 
-#ifdef CUDD
   DdNode *funcBdd(const FuncExpr *expr,
 		  const Instance *inst) const;
   DdNode *ensureNode(LibertyPort *port) const;
   void clearSymtab() const;
 
-  DdManager *cudd_manager_;
+  DdManager *cudd_mgr_;
   mutable BddSymbolTable symtab_;
   mutable std::mutex cudd_lock_;
-#endif // CUDD
 };
 
 // Abstract base class for Sim value change observer.

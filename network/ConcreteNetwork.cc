@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -138,7 +138,7 @@ public:
 private:
   void findNext();
 
-  ConcretePin **pins_;
+  const ConcretePinSeq &pins_;
   int pin_count_;
   int pin_index_;
   ConcretePin *next_;
@@ -476,13 +476,6 @@ ConcreteNetwork::findLiberty(const char *name)
   return nullptr;
 }
 
-LibertyLibrary *
-ConcreteNetwork::libertyLibrary(Library *library) const
-{
-  ConcreteLibrary *lib = reinterpret_cast<ConcreteLibrary*>(library);
-  return static_cast<LibertyLibrary*>(lib);
-}
-
 Cell *
 ConcreteNetwork::makeCell(Library *library,
 			  const char *name,
@@ -610,14 +603,6 @@ ConcreteNetwork::findPort(const Cell *cell,
 {
   const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
   return reinterpret_cast<Port*>(ccell->findPort(name));
-}
-
-PortSeq
-ConcreteNetwork::findPortsMatching(const Cell *cell,
-				   const PatternMatch *pattern) const
-{
-  const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
-  return ccell->findPortsMatching(pattern);
 }
 
 bool
@@ -868,21 +853,24 @@ ConcreteNetwork::hasMembers(const Port *port) const
 
 ////////////////////////////////////////////////////////////////
 
+// This has to skip over missing bus bits in the members.
 class ConcretePortMemberIterator1 : public PortMemberIterator
 {
 public:
   explicit ConcretePortMemberIterator1(const ConcretePort *port);
   ~ConcretePortMemberIterator1();
-  virtual bool hasNext() { return iter_->hasNext(); }
+  virtual bool hasNext();
   virtual Port *next();
 
 private:
   ConcretePortMemberIterator *iter_;
+  ConcretePort *next_;
 };
 
 ConcretePortMemberIterator1::ConcretePortMemberIterator1(const ConcretePort *
 							 port) :
-  iter_(port->memberIterator())
+  iter_(port->memberIterator()),
+  next_(nullptr)
 {
 }
 
@@ -891,10 +879,21 @@ ConcretePortMemberIterator1::~ConcretePortMemberIterator1()
   delete iter_;
 }
 
+bool
+ConcretePortMemberIterator1::hasNext()
+{
+  while (next_ == nullptr
+         && iter_->hasNext())
+    next_ = iter_->next();
+  return next_ != nullptr;
+}
+
 Port *
 ConcretePortMemberIterator1::next()
 {
-  return reinterpret_cast<Port*>(iter_->next());
+  ConcretePort *next = next_;
+  next_ = nullptr;
+  return reinterpret_cast<Port*>(next);
 }
 
 PortMemberIterator *
@@ -1226,8 +1225,8 @@ ConcreteNetwork::replaceCell(Instance *inst,
   ConcreteCell *ccell = reinterpret_cast<ConcreteCell*>(cell);
   int port_count = ccell->portBitCount();
   ConcreteInstance *cinst = reinterpret_cast<ConcreteInstance*>(inst);
-  ConcretePin **pins = cinst->pins_;
-  ConcretePin **rpins = new ConcretePin*[port_count];
+  ConcretePinSeq &pins = cinst->pins_;
+  ConcretePinSeq rpins(port_count);
   for (int i = 0; i < port_count; i++)
     rpins[i] = nullptr;
   for (int i = 0; i < port_count; i++) {
@@ -1242,7 +1241,6 @@ ConcreteNetwork::replaceCell(Instance *inst,
       }
     }
   }
-  delete [] pins;
   cinst->pins_ = rpins;
   cinst->setCell(ccell);
 }
@@ -1348,7 +1346,8 @@ ConcreteNetwork::connect(Instance *inst,
   if (inst == top_instance_) {
     // makeTerm
     ConcreteTerm *cterm = new ConcreteTerm(cpin, cnet);
-    cnet->addTerm(cterm);
+    if (cnet)
+      cnet->addTerm(cterm);
     cpin->term_ = cterm;
     cpin->net_ = nullptr;
   }
@@ -1556,20 +1555,13 @@ ConcreteInstance::ConcreteInstance(const char *name,
 void
 ConcreteInstance::initPins()
 {
-  int pin_count = reinterpret_cast<ConcreteCell*>(cell_)->portBitCount();
-  if (pin_count) {
-    pins_ = new ConcretePin*[pin_count];
-    for (int i = 0; i < pin_count; i++)
-      pins_[i] = nullptr;
-  }
-  else
-    pins_ = nullptr;
+  ConcreteCell *ccell = reinterpret_cast<ConcreteCell*>(cell_);
+  pins_.resize(ccell->portBitCount());
 }
 
 ConcreteInstance::~ConcreteInstance()
 {
   stringDelete(name_);
-  delete [] pins_;
   delete children_;
   delete nets_;
 }
@@ -1600,7 +1592,11 @@ ConcretePin *
 ConcreteInstance::findPin(const Port *port) const
 {
   const ConcretePort *cport = reinterpret_cast<const ConcretePort*>(port);
-  return pins_[cport->pinIndex()];
+  size_t port_index = cport->pinIndex();
+  if (port_index < pins_.size())
+    return pins_[port_index];
+  else
+    return nullptr;
 }
 
 ConcreteNet *
@@ -1670,7 +1666,10 @@ void
 ConcreteInstance::addPin(ConcretePin *pin)
 {
   ConcretePort *cport = reinterpret_cast<ConcretePort *>(pin->port());
-  pins_[cport->pinIndex()] = pin;
+  size_t pin_index = cport->pinIndex();
+  if (pin_index >= pins_.size())
+    pins_.resize(pin_index + 1);
+  pins_[pin_index] = pin;
 }
 
 void

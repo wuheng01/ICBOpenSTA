@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -170,6 +170,7 @@ public:
 		     TimingDerateType type,
 		     const MinMax *early_late,
 		     WriteSdcObject *write_obj) const;
+  void writeVoltages() const;
 
   const char *pathName(const Pin *pin) const;
   const char *pathName(const Net *net) const;

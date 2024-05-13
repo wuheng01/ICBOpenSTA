@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -82,6 +82,10 @@ typedef Map<const Net*, PinSet*> NetDrvrPinsMap;
 // they can be implemented in terms of the other functions.
 // Only the pure virtual functions MUST be implemented by a derived class.
 
+
+namespace NameResolve {
+class ModuleList;
+}
 class Network : public StaState
 {
 public:
@@ -148,7 +152,7 @@ public:
   virtual Port *findPort(const Cell *cell,
 			 const char *name) const = 0;
   virtual PortSeq findPortsMatching(const Cell *cell,
-                                    const PatternMatch *pattern) const = 0;
+                                    const PatternMatch *pattern) const;
   virtual bool isLeaf(const Cell *cell) const = 0;
   virtual CellPortIterator *portIterator(const Cell *cell) const = 0;
   // Iterate over port bits (expanded buses).
@@ -428,6 +432,8 @@ public:
   // Escape prefix for path dividers in path names.
   virtual char pathEscape() const { return escape_; }
   virtual void setPathEscape(char escape);
+
+  static NameResolve::ModuleList* nameResolver;
 
 protected:
   Pin *findPinLinear(const Instance *instance,

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 #pragma once
 
 #include <string>
+#include <memory>
 
 #include "StringSeq.hh"
 #include "LibertyClass.hh"
@@ -28,7 +29,7 @@
 #include "VertexVisitor.hh"
 #include "SearchClass.hh"
 #include "PowerClass.hh"
-
+#include <functional>
 struct Tcl_Interp;
 
 namespace sta {
@@ -179,6 +180,8 @@ public:
 		     const Corner *corner,
 		     const MinMaxAll *min_max,
 		     float cap);
+  // Remove all "set_load net" annotations.
+  void removeNetLoadCaps() const;
   // Set port external fanout (used by wireload models).
   void setPortExtFanout(const Port *port,
 			int fanout,
@@ -427,8 +430,6 @@ public:
   bool isDisabledConstant(Edge *edge);
   // Edge is default cond disabled by timing_disable_cond_default_arcs var.
   bool isDisabledCondDefault(Edge *edge);
-  // Edge is disabled to prpath a clock from propagating.
-  bool isDisabledClock(Edge *edge);
   // Return a set of constant pins that disabled edge.
   // Caller owns the returned set.
   PinSet disabledConstantPins(Edge *edge);
@@ -456,36 +457,36 @@ public:
   void setCaseAnalysis(Pin *pin,
 		       LogicValue value);
   void removeCaseAnalysis(Pin *pin);
-  void setInputDelay(Pin *pin,
+  void setInputDelay(const Pin *pin,
 		     const RiseFallBoth *rf,
-		     Clock *clk,
+		     const Clock *clk,
 		     const RiseFall *clk_rf,
-		     Pin *ref_pin,
+		     const Pin *ref_pin,
 		     bool source_latency_included,
 		     bool network_latency_included,
 		     const MinMaxAll *min_max,
 		     bool add,
 		     float delay);
-  void removeInputDelay(Pin *pin,
-			RiseFallBoth *rf, 
-			Clock *clk,
-			RiseFall *clk_rf, 
-			MinMaxAll *min_max);
-  void setOutputDelay(Pin *pin,
+  void removeInputDelay(const Pin *pin,
+			const RiseFallBoth *rf, 
+			const Clock *clk,
+			const RiseFall *clk_rf, 
+			const MinMaxAll *min_max);
+  void setOutputDelay(const Pin *pin,
 		      const RiseFallBoth *rf,
-		      Clock *clk,
+		      const Clock *clk,
 		      const RiseFall *clk_rf,
-		      Pin *ref_pin,
+		      const Pin *ref_pin,
 		      bool source_latency_included,
 		      bool network_latency_included,
 		      const MinMaxAll *min_max,
 		      bool add,
 		      float delay);
-  void removeOutputDelay(Pin *pin,
-			 RiseFallBoth *rf, 
-			 Clock *clk,
-			 RiseFall *clk_rf, 
-			 MinMaxAll *min_max);
+  void removeOutputDelay(const Pin *pin,
+			 const RiseFallBoth *rf, 
+			 const Clock *clk,
+			 const RiseFall *clk_rf, 
+			 const MinMaxAll *min_max);
   void makeFalsePath(ExceptionFrom *from,
 		     ExceptionThruSeq *thrus,
 		     ExceptionTo *to,
@@ -593,8 +594,10 @@ public:
 		      bool thru_disabled,
 		      bool thru_constants);
 
-  // The set of clocks that reach pin.
+  // The set of clocks that arrive at vertex in the clock network.
   ClockSet clocks(const Pin *pin);
+  // Clock domains for a pin.
+  ClockSet clockDomains(const Pin *pin);
 
   void checkSlewLimitPreamble();
   // Return pins with the min/max slew limit slack.
@@ -743,6 +746,11 @@ public:
   void setPvt(const Instance *inst,
 	      const MinMaxAll *min_max,
 	      const Pvt &pvt);
+  void setVoltage(const MinMax *min_max,
+                  float voltage);
+  void setVoltage(const Net *net,
+                  const MinMax *min_max,
+                  float voltage);
   // Clear all state except network.
   virtual void clear();
   // Remove all constraints.
@@ -885,17 +893,12 @@ public:
   void setReportPathFields(bool report_input_pin,
 			   bool report_net,
 			   bool report_cap,
-			   bool report_slew);
+			   bool report_slew,
+                           bool report_fanout);
   ReportField *findReportPathField(const char *name);
   void setReportPathDigits(int digits);
   void setReportPathNoSplit(bool no_split);
   void setReportPathSigmas(bool report_sigmas);
-  // Report clk skews for clks.
-  void reportClkSkew(ClockSet *clks,
-		     const Corner *corner,
-		     const SetupHold *setup_hold,
-		     int digits);
-  float findWorstClkSkew(const SetupHold *setup_hold);
   // Header above reportPathEnd results.
   void reportPathEndHeader();
   // Footer below reportPathEnd results.
@@ -909,6 +912,18 @@ public:
   void reportPathEnds(PathEndSeq *ends);
   ReportPath *reportPath() { return report_path_; }
   void reportPath(Path *path);
+
+  // Report clk skews for clks.
+  void reportClkSkew(ClockSet *clks,
+		     const Corner *corner,
+		     const SetupHold *setup_hold,
+		     int digits);
+  float findWorstClkSkew(const SetupHold *setup_hold);
+  // Find min/max/rise/fall delays for clk.
+  void findClkDelays(const Clock *clk,
+                     // Return values.
+                     ClkDelays &delays);
+
   // Update arrival times for all pins.
   // If necessary updateTiming propagates arrivals around latch
   // loops until the arrivals converge.
@@ -932,11 +947,11 @@ public:
   PinSet findGroupPathPins(const char *group_path_name);
   // Find all required times after updateTiming().
   void findRequireds();
-  string *reportDelayCalc(Edge *edge,
-			  TimingArc *arc,
-			  const Corner *corner,
-			  const MinMax *min_max,
-			  int digits);
+  string reportDelayCalc(Edge *edge,
+                         TimingArc *arc,
+                         const Corner *corner,
+                         const MinMax *min_max,
+                         int digits);
   void writeSdc(const char *filename,
 		// Map hierarchical pins and instances to leaf pins and instances.
 		bool leaf,
@@ -997,13 +1012,24 @@ public:
   Arrival vertexArrival(Vertex *vertex,
 			const RiseFall *rf,
 			const ClockEdge *clk_edge,
+			const PathAnalysisPt *path_ap,
+                        const MinMax *min_max);
+  Arrival vertexArrival(Vertex *vertex,
+			const RiseFall *rf,
+			const ClockEdge *clk_edge,
 			const PathAnalysisPt *path_ap);
   // Min/max across all clock tags.
   Arrival vertexArrival(Vertex *vertex,
 			const RiseFall *rf,
 			const PathAnalysisPt *path_ap);
   Arrival vertexArrival(Vertex *vertex,
+			const RiseFall *rf,
+			const MinMax *min_max);
+  Arrival vertexArrival(Vertex *vertex,
                         const MinMax *min_max);
+  Arrival pinArrival(const Pin *pin,
+                     const RiseFall *rf,
+                     const MinMax *min_max);
   Required vertexRequired(Vertex *vertex,
 			  const MinMax *min_max);
   Required vertexRequired(Vertex *vertex,
@@ -1116,7 +1142,8 @@ public:
 		float coupling_cap_factor,
 		ReducedParasiticType reduce_to,
 		bool delete_after_reduce,
-		bool quiet);
+		bool quiet,
+    bool disable_reduce_parsitic_network_circle);
   void reportParasiticAnnotation(bool report_unannotated,
                                  const Corner *corner);
   // Parasitics.
@@ -1163,14 +1190,16 @@ public:
 		       Instance *parent);
   virtual void deleteNet(Net *net);
   // connect_net
-  virtual void connectPin(Instance *inst,
+  virtual Pin* connectPin(Instance *inst,
 			  Port *port,
 			  Net *net);
-  virtual void connectPin(Instance *inst,
+  virtual Pin* connectPin(Instance *inst,
 			  LibertyPort *port,
 			  Net *net);
   // disconnect_net
   virtual void disconnectPin(Pin *pin);
+  virtual void makePortPin(const char *port_name,
+                           const char *direction);
   // Notify STA of network change.
   void networkChanged();
   void deleteLeafInstanceBefore(const Instance *inst);
@@ -1188,6 +1217,7 @@ public:
   virtual void replaceCellBefore(const Instance *inst,
 				 const LibertyCell *to_cell);
   virtual void replaceCellAfter(const Instance *inst);
+  virtual void makePortPinAfter(Pin *pin);
   virtual void connectPinAfter(const Pin *pin);
   virtual void disconnectPinBefore(const Pin *pin);
   virtual void deleteNetBefore(const Net *net);
@@ -1233,6 +1263,8 @@ public:
 
   // Define the delay calculator implementation.
   void setArcDelayCalc(const char *delay_calc_name);
+  void setArcDelayCalc(ArcDelayCalc* calc);
+  void setCorners(const Sta* sta);
 
   void setDebugLevel(const char *what,
 		     int level);
@@ -1259,6 +1291,7 @@ public:
 	     PowerResult &total,
 	     PowerResult &sequential,
   	     PowerResult &combinational,
+  	     PowerResult &clock,
 	     PowerResult &macro,
 	     PowerResult &pad);
   PowerResult power(const Instance *inst,
@@ -1275,6 +1308,8 @@ public:
   void makeEquivCells(LibertyLibrarySeq *equiv_libs,
 		      LibertyLibrarySeq *map_libs);
   LibertyCellSeq *equivCells(LibertyCell *cell);
+
+  static void registerDeleteVertexCB(std::shared_ptr<std::function<void(Vertex*)>>& f);
 
 protected:
   // Default constructors that are called by makeComponents in the Sta
@@ -1421,6 +1456,10 @@ protected:
 
   // Singleton sta used by tcl command interpreter.
   static Sta *sta_;
+
+public:
+  typedef std::vector<std::string> StrVec;
+  void icbNamematch(const char *pattern, StrVec& results);
 };
 
 } // namespace

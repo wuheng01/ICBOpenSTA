@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -102,6 +102,10 @@ EquivCells::equivs(LibertyCell *cell)
   return equiv_cells_.findKey(cell);
 }
 
+
+bool 
+EquivCells::ignoreDontUse = false;
+
 // Use a comprehensive hash on cell properties to segregate
 // cells into groups of potential matches.
 void
@@ -111,32 +115,36 @@ EquivCells::findEquivCells(const LibertyLibrary *library,
   LibertyCellIterator cell_iter(library);
   while (cell_iter.hasNext()) {
     LibertyCell *cell = cell_iter.next();
-    if (!cell->dontUse()) {
+    bool dontUse = cell->dontUse();
+    if (ignoreDontUse || !dontUse) {
       unsigned hash = hashCell(cell);
       LibertyCellSeq *matches = hash_matches.findKey(hash);
       if (matches) {
-	LibertyCellSeq::Iterator match_iter(matches);
-	while (match_iter.hasNext()) {
-	  LibertyCell *match = match_iter.next();
-	  if (equivCells(match, cell)) {
-	    LibertyCellSeq *equivs = equiv_cells_.findKey(match);
-	    if (equivs == nullptr) {
-	      equivs = new LibertyCellSeq;
-	      equivs->push_back(match);
-	      unique_equiv_cells_.push_back(match);
-	      equiv_cells_[match] = equivs;
-	    }
-	    equivs->push_back(cell);
-	    equiv_cells_[cell] = equivs;
-	    break;
-	  }
-	}
-	matches->push_back(cell);
+        LibertyCellSeq::Iterator match_iter(matches);
+        while (match_iter.hasNext()) {
+          LibertyCell *match = match_iter.next();
+          bool matchDontUse = match->dontUse();
+          if (equivCells(match, cell)) {
+            LibertyCellSeq *equivs = equiv_cells_.findKey(match);
+            if (equivs == nullptr) {
+              equivs = new LibertyCellSeq;
+              if (!matchDontUse)
+                equivs->push_back(match);
+              unique_equiv_cells_.push_back(match);
+              equiv_cells_[match] = equivs;
+            }
+            if (!dontUse)
+              equivs->push_back(cell);
+            equiv_cells_[cell] = equivs;
+            break;
+          }
+        }
+        matches->push_back(cell);
       }
       else {
-	matches = new LibertyCellSeq;
-	hash_matches[hash] = matches;
-	matches->push_back(cell);
+        matches = new LibertyCellSeq;
+        hash_matches[hash] = matches;
+        matches->push_back(cell);
       }
     }
   }

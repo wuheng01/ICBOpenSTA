@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@ public:
   // Find equivalents for cell (member of from_libs) in to_libs.
   LibertyCellSeq *equivs(LibertyCell *cell);
   
+  static bool ignoreDontUse;
 protected:
   void findEquivCells(const LibertyLibrary *library,
 		      LibertyCellHashMap &hash_matches);

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -43,7 +43,8 @@ public:
   void setReportFields(bool report_input_pin,
 		       bool report_net,
 		       bool report_cap,
-		       bool report_slew);
+		       bool report_slew,
+                       bool report_fanout);
   int digits() const { return digits_; }
   void setDigits(int digits);
   void setNoSplit(bool no_split);

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -82,7 +82,9 @@ LibertyLibrary::LibertyLibrary(const char *name,
   default_operating_conditions_(nullptr),
   ocv_arc_depth_(0.0),
   default_ocv_derate_(nullptr),
-  buffers_(nullptr)
+  buffers_(nullptr),
+  inverters_(nullptr),
+  driver_waveform_default_(nullptr)
 {
   // Scalar templates are builtin.
   for (int i = 0; i != table_template_type_count; i++) {
@@ -92,12 +94,12 @@ LibertyLibrary::LibertyLibrary(const char *name,
     addTableTemplate(scalar_template, type);
   }
 
-  for (auto tr_index : RiseFall::rangeIndex()) {
-    wire_slew_degradation_tbls_[tr_index] = nullptr;
-    input_threshold_[tr_index] = input_threshold_default_;
-    output_threshold_[tr_index] = output_threshold_default_;
-    slew_lower_threshold_[tr_index] = slew_lower_threshold_default_;
-    slew_upper_threshold_[tr_index] = slew_upper_threshold_default_;
+  for (auto rf_index : RiseFall::rangeIndex()) {
+    wire_slew_degradation_tbls_[rf_index] = nullptr;
+    input_threshold_[rf_index] = input_threshold_default_;
+    output_threshold_[rf_index] = output_threshold_default_;
+    slew_lower_threshold_[rf_index] = slew_lower_threshold_default_;
+    slew_upper_threshold_[rf_index] = slew_upper_threshold_default_;
   }
 }
 
@@ -109,8 +111,8 @@ LibertyLibrary::~LibertyLibrary()
   scale_factors_map_.deleteContents();
   delete scale_factors_;
 
-  for (auto tr_index : RiseFall::rangeIndex()) {
-    TableModel *model = wire_slew_degradation_tbls_[tr_index];
+  for (auto rf_index : RiseFall::rangeIndex()) {
+    TableModel *model = wire_slew_degradation_tbls_[rf_index];
     delete model;
   }
   operating_conditions_.deleteContents();
@@ -124,6 +126,9 @@ LibertyLibrary::~LibertyLibrary()
     stringDelete(supply_name);
   }
   delete buffers_;
+  delete inverters_;
+  driver_waveform_map_.deleteContents();
+  delete driver_waveform_default_;
 }
 
 LibertyCell *
@@ -143,6 +148,22 @@ LibertyLibrary::findLibertyCellsMatching(PatternMatch *pattern)
       matches.push_back(cell);
   }
   return matches;
+}
+
+LibertyCellSeq *
+LibertyLibrary::inverters()
+{
+  if (inverters_ == nullptr) {
+    inverters_ = new LibertyCellSeq;
+    LibertyCellIterator cell_iter(this);
+    while (cell_iter.hasNext()) {
+      LibertyCell *cell = cell_iter.next();
+      if (!cell->dontUse()
+          && cell->isInverter())
+        inverters_->push_back(cell);
+    }
+  }
+  return inverters_;
 }
 
 LibertyCellSeq *
@@ -268,7 +289,7 @@ LibertyLibrary::scaleFactor(ScaleFactorType type,
 
 float
 LibertyLibrary::scaleFactor(ScaleFactorType type,
-			    int tr_index,
+			    int rf_index,
 			    const LibertyCell *cell,
 			    const Pvt *pvt) const
 {
@@ -278,18 +299,18 @@ LibertyLibrary::scaleFactor(ScaleFactorType type,
   // All scale factors are unity for nominal pvt.
   if (pvt) {
     ScaleFactors *scale_factors = nullptr;
-    // Cell level scale factors have precidence over library scale factors.
+    // Cell level scale factors have precedence over library scale factors.
     if (cell)
       scale_factors = cell->scaleFactors();
     if (scale_factors == nullptr)
       scale_factors = scale_factors_;
     if (scale_factors) {
       float process_scale = 1.0F + (pvt->process() - nominal_process_)
-	* scale_factors->scale(type, ScaleFactorPvt::process, tr_index);
+	* scale_factors->scale(type, ScaleFactorPvt::process, rf_index);
       float temp_scale = 1.0F + (pvt->temperature() - nominal_temperature_)
-	* scale_factors->scale(type, ScaleFactorPvt::temp, tr_index);
+	* scale_factors->scale(type, ScaleFactorPvt::temp, rf_index);
       float volt_scale = 1.0F + (pvt->voltage() - nominal_voltage_)
-	* scale_factors->scale(type, ScaleFactorPvt::volt, tr_index);
+	* scale_factors->scale(type, ScaleFactorPvt::volt, rf_index);
       float scale = process_scale * temp_scale * volt_scale;
       return scale;
     }
@@ -301,10 +322,10 @@ void
 LibertyLibrary::setWireSlewDegradationTable(TableModel *model,
 			 		    RiseFall *rf)
 {
-  int tr_index = rf->index();
-  if (wire_slew_degradation_tbls_[tr_index])
-    delete wire_slew_degradation_tbls_[tr_index];
-  wire_slew_degradation_tbls_[tr_index] = model;
+  int rf_index = rf->index();
+  if (wire_slew_degradation_tbls_[rf_index])
+    delete wire_slew_degradation_tbls_[rf_index];
+  wire_slew_degradation_tbls_[rf_index] = model;
 }
 
 TableModel *
@@ -314,52 +335,48 @@ LibertyLibrary::wireSlewDegradationTable(const RiseFall *rf) const
 }
 
 float
-LibertyLibrary::degradeWireSlew(const LibertyCell *cell,
-				const RiseFall *rf,
-				const Pvt *pvt,
+LibertyLibrary::degradeWireSlew(const RiseFall *rf,
 				float in_slew,
 				float wire_delay) const
 {
   const TableModel *model = wireSlewDegradationTable(rf);
   if (model)
-    return degradeWireSlew(cell, pvt, model, in_slew, wire_delay);
+    return degradeWireSlew(model, in_slew, wire_delay);
   else
     return in_slew;
 }
 
 float
-LibertyLibrary::degradeWireSlew(const LibertyCell *cell,
-				const Pvt *pvt,
-				const TableModel *model,
+LibertyLibrary::degradeWireSlew(const TableModel *model,
 				float in_slew,
 				float wire_delay) const
 {
   switch (model->order()) {
   case 0:
-    return model->findValue(this, cell, pvt, 0.0, 0.0, 0.0);
+    return model->findValue(0.0, 0.0, 0.0);
   case 1: {
-    TableAxisPtr axis1 = model->axis1();
+    const TableAxis *axis1 = model->axis1();
     TableAxisVariable var1 = axis1->variable();
     if (var1 == TableAxisVariable::output_pin_transition)
-      return model->findValue(this, cell, pvt, in_slew, 0.0, 0.0);
+      return model->findValue(in_slew, 0.0, 0.0);
     else if (var1 == TableAxisVariable::connect_delay)
-      return model->findValue(this, cell, pvt, wire_delay, 0.0, 0.0);
+      return model->findValue(wire_delay, 0.0, 0.0);
     else {
       criticalError(231, "unsupported slew degradation table axes");
       return 0.0;
     }
   }
   case 2: {
-    TableAxisPtr axis1 = model->axis1();
-    TableAxisPtr axis2 = model->axis2();
+    const TableAxis *axis1 = model->axis1();
+    const TableAxis * axis2 = model->axis2();
     TableAxisVariable var1 = axis1->variable();
     TableAxisVariable var2 = axis2->variable();
     if (var1 == TableAxisVariable::output_pin_transition
 	&& var2 == TableAxisVariable::connect_delay)
-      return model->findValue(this, cell, pvt, in_slew, wire_delay, 0.0);
+      return model->findValue(in_slew, wire_delay, 0.0);
     else if (var1 == TableAxisVariable::connect_delay
 	     && var2 == TableAxisVariable::output_pin_transition)
-      return model->findValue(this, cell, pvt, wire_delay, in_slew, 0.0);
+      return model->findValue(wire_delay, in_slew, 0.0);
     else {
       criticalError(232, "unsupported slew degradation table axes");
       return 0.0;
@@ -374,20 +391,20 @@ LibertyLibrary::degradeWireSlew(const LibertyCell *cell,
 // Check for supported axis variables.
 // Return true if axes are supported.
 bool
-LibertyLibrary::checkSlewDegradationAxes(TablePtr table)
+LibertyLibrary::checkSlewDegradationAxes(const TablePtr &table)
 {
   switch (table->order()) {
   case 0:
     return true;
   case 1: {
-    TableAxisPtr axis1 = table->axis1();
+    const TableAxis *axis1 = table->axis1();
     TableAxisVariable var1 = axis1->variable();
     return var1 == TableAxisVariable::output_pin_transition
       || var1 == TableAxisVariable::connect_delay;
   }
   case 2: {
-    TableAxisPtr axis1 = table->axis1();
-    TableAxisPtr axis2 = table->axis2();
+    const TableAxis *axis1 = table->axis1();
+    const TableAxis *axis2 = table->axis2();
     TableAxisVariable var1 = axis1->variable();
     TableAxisVariable var2 = axis2->variable();
     return (var1 == TableAxisVariable::output_pin_transition
@@ -860,6 +877,23 @@ LibertyLibrary::supplyExists(const char *supply_name) const
   return supply_voltage_map_.hasKey(supply_name);
 }
 
+DriverWaveform *
+LibertyLibrary::findDriverWaveform(const char *name)
+{
+  return driver_waveform_map_[name];
+}
+
+void
+LibertyLibrary::addDriverWaveform(DriverWaveform *driver_waveform)
+{
+  if (driver_waveform->name())
+    driver_waveform_map_[driver_waveform->name()] = driver_waveform;
+  else {
+    delete driver_waveform_default_;
+    driver_waveform_default_ = driver_waveform;
+  }
+}
+
 ////////////////////////////////////////////////////////////////
 
 LibertyCellIterator::LibertyCellIterator(const LibertyLibrary *library) :
@@ -891,6 +925,7 @@ LibertyCell::LibertyCell(LibertyLibrary *library,
   is_macro_(false),
   is_memory_(false),
   is_pad_(false),
+  is_clock_cell_(false),
   is_level_shifter_(false),
   level_shifter_type_(LevelShifterType::HL_LH),
   is_isolation_cell_(false),
@@ -1044,6 +1079,12 @@ LibertyCell::LibertyCell::setIsPad(bool is_pad)
 }
 
 void
+LibertyCell::LibertyCell::setIsClockCell(bool is_clock_cell)
+{
+  is_clock_cell_ = is_clock_cell;
+}
+
+void
 LibertyCell::setIsLevelShifter(bool is_level_shifter)
 {
   is_level_shifter_ = is_level_shifter;
@@ -1191,8 +1232,6 @@ unsigned
 LibertyCell::addTimingArcSet(TimingArcSet *arc_set)
 {
   int set_index = timing_arc_sets_.size();
-  if (set_index > timing_arc_set_index_max)
-    criticalError(235, "timing arc set max index exceeded");
   timing_arc_sets_.push_back(arc_set);
 
   LibertyPort *from = arc_set->from();
@@ -1265,8 +1304,7 @@ LibertyCell::finish(bool infer_latches,
   makeTimingArcPortMaps();
   findDefaultCondArcs();
   makeLatchEnables(report, debug);
-  if (infer_latches
-      && !interface_timing_)
+  if (infer_latches)
     inferLatchRoles(debug);
 }
 
@@ -1919,6 +1957,8 @@ LibertyPort::LibertyPort(LibertyCell *cell,
   pulse_clk_sense_(nullptr),
   related_ground_pin_(nullptr),
   related_power_pin_(nullptr),
+  receiver_model_(nullptr),
+  driver_waveform_{nullptr, nullptr},
   min_pulse_width_exists_(false),
   min_period_exists_(false),
   is_clk_(false),
@@ -2315,15 +2355,16 @@ bool
 LibertyPort::less(const LibertyPort *port1,
 		  const LibertyPort *port2)
 {
+  if (port1 == nullptr && port2 != nullptr)
+    return true;
+  if (port1 != nullptr && port2 == nullptr)
+    return false;
   const char *name1 = port1->name();
   const char *name2 = port2->name();
   if (stringEq(name1, name2)) {
     PortDirection *dir1 = port1->direction();
     PortDirection *dir2 = port2->direction();
-    if (dir1 == dir2) {
-    }
-    else
-      return dir1->index() < dir2->index();
+    return dir1->index() < dir2->index();
   }
   return stringLess(name1, name2);
 }
@@ -2492,6 +2533,68 @@ LibertyPort::setRelatedPowerPin(const char *related_power_pin)
   related_power_pin_ = stringCopy(related_power_pin);
 }
 
+void
+LibertyPort::setReceiverModel(ReceiverModelPtr receiver_model)
+{
+  receiver_model_ = receiver_model;
+}
+
+string
+portLibertyToSta(const char *port_name)
+{
+  constexpr char bus_brkt_left = '[';
+  constexpr char bus_brkt_right = ']';
+  size_t name_length = strlen(port_name);
+  string sta_name;
+  for (size_t i = 0; i < name_length; i++) {
+    char ch = port_name[i];
+    if (ch == bus_brkt_left
+        || ch == bus_brkt_right)
+      sta_name += '\\';
+    sta_name += ch;
+  }
+  return sta_name;
+}
+
+DriverWaveform *
+LibertyPort::driverWaveform(const RiseFall *rf) const
+{
+  return driver_waveform_[rf->index()];
+}
+
+void
+LibertyPort::setDriverWaveform(DriverWaveform *driver_waveform,
+                               const RiseFall *rf)
+{
+  driver_waveform_[rf->index()] = driver_waveform;
+}
+
+RiseFallMinMax
+LibertyPort::clockTreePathDelays()
+{
+  RiseFallMinMax delays;
+  const TimingArcSetSeq &arc_sets = liberty_cell_->timingArcSets(nullptr, this);
+  for (TimingArcSet *arc_set : arc_sets) {
+    TimingRole *role = arc_set->role();
+    if (role == TimingRole::clockTreePathMin()
+        || role == TimingRole::clockTreePathMax()) {
+      for (TimingArc *arc : arc_set->arcs()) {
+        TimingModel *model = arc->model();
+        GateTimingModel *gate_model = dynamic_cast<GateTimingModel*>(model);
+        ArcDelay delay;
+        Slew slew;
+        gate_model->gateDelay(nullptr, 0.0, 0.0, 0.0, false, delay, slew);
+        const RiseFall *rf = arc->toEdge()->asRiseFall();
+        const MinMax *min_max = (role == TimingRole::clockTreePathMin())
+          ? MinMax::min()
+          : MinMax::max();
+        delays.setValue(rf, min_max, delayAsFloat(delay));
+      }
+    }
+  }
+  return delays;
+}
+
 ////////////////////////////////////////////////////////////////
 
 LibertyPortSeq
@@ -2515,8 +2618,8 @@ bool
 LibertyPortPairLess::operator()(const LibertyPortPair &pair1,
 				const LibertyPortPair &pair2) const
 {
-  ObjectId id1 = pair1.first->id();
-  ObjectId id2 = pair2.first->id();
+  ObjectId id1 = pair1.first ? pair1.first->id() : 0;
+  ObjectId id2 = pair2.first ? pair2.first->id() : 0;
   return id1 < id2
     || (id1 == id2
 	&& pair1.second->id() < pair2.second->id());
@@ -2810,8 +2913,8 @@ ScaleFactors::ScaleFactors(const char *name) :
 {
   for (int type = 0; type < scale_factor_type_count; type++) {
     for (int pvt = 0; pvt < scale_factor_pvt_count; pvt++) {
-      for (auto tr_index : RiseFall::rangeIndex()) {
-	scales_[type][pvt][tr_index] = 0.0;
+      for (auto rf_index : RiseFall::rangeIndex()) {
+	scales_[type][pvt][rf_index] = 0.0;
       }
     }
   }
@@ -2850,9 +2953,9 @@ ScaleFactors::scale(ScaleFactorType type,
 float
 ScaleFactors::scale(ScaleFactorType type,
 		    ScaleFactorPvt pvt,
-		    int tr_index)
+		    int rf_index)
 {
-  return scales_[int(type)][int(pvt)][tr_index];
+  return scales_[int(type)][int(pvt)][rf_index];
 }
 
 float
@@ -2949,9 +3052,9 @@ OcvDerate::OcvDerate(const char *name) :
   name_(name)
 {
   for (auto el_index : EarlyLate::rangeIndex()) {
-    for (auto tr_index : RiseFall::rangeIndex()) {
-      derate_[tr_index][el_index][int(PathType::clk)] = nullptr;
-      derate_[tr_index][el_index][int(PathType::data)] = nullptr;
+    for (auto rf_index : RiseFall::rangeIndex()) {
+      derate_[rf_index][el_index][int(PathType::clk)] = nullptr;
+      derate_[rf_index][el_index][int(PathType::data)] = nullptr;
     }
   }
 }
@@ -2961,12 +3064,12 @@ OcvDerate::~OcvDerate()
   stringDelete(name_);
 }
 
-TablePtr
+const Table *
 OcvDerate::derateTable(const RiseFall *rf,
 		       const EarlyLate *early_late,
 		       PathType path_type)
 {
-  return derate_[rf->index()][early_late->index()][int(path_type)];
+  return derate_[rf->index()][early_late->index()][int(path_type)].get();
 }
 
 void

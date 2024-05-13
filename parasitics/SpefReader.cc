@@ -1,22 +1,20 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
-// 
+//
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "SpefReader.hh"
-
-#include <limits>
 
 #include "Zlib.hh"
 #include "Report.hh"
@@ -31,6 +29,7 @@
 #include "Parasitics.hh"
 #include "SpefReaderPvt.hh"
 #include "SpefNamespace.hh"
+#include "ConcreteParasiticsPvt.hh"
 
 int
 SpefParse_parse();
@@ -56,7 +55,8 @@ readSpefFile(const char *filename,
 	     bool quiet,
 	     Report *report,
 	     Network *network,
-	     Parasitics *parasitics)
+	     Parasitics *parasitics,
+       bool disable_reduce_parsitic_network_circle)
 {
   bool success = false;
   // Use zlib to uncompress gzip'd files automagically.
@@ -64,8 +64,9 @@ readSpefFile(const char *filename,
   if (stream) {
     SpefReader reader(filename, stream, instance, ap,
 		      pin_cap_included, keep_coupling_caps, coupling_cap_factor,
-		      reduce_to, delete_after_reduce, op_cond, corner, 
-		      cnst_min_max, quiet, report, network, parasitics);
+		      reduce_to, delete_after_reduce, op_cond, corner,
+		      cnst_min_max, quiet, report, network, parasitics,
+          disable_reduce_parsitic_network_circle);
     spef_reader = &reader;
     ::spefResetScanner();
     // yyparse returns 0 on success.
@@ -93,7 +94,8 @@ SpefReader::SpefReader(const char *filename,
 		       bool quiet,
 		       Report *report,
 		       Network *network,
-		       Parasitics *parasitics) :
+		       Parasitics *parasitics,
+           bool disable_reduce_parsitic_network_circle) :
   filename_(filename),
   instance_(instance),
   ap_(ap),
@@ -123,7 +125,8 @@ SpefReader::SpefReader(const char *filename,
   res_scale_(1.0),
   induct_scale_(1.0),
   design_flow_(nullptr),
-  parasitic_(nullptr)
+  parasitic_(nullptr),
+  disable_reduce_parsitic_network_circle_(disable_reduce_parsitic_network_circle)
 {
   ap->setCouplingCapFactor(coupling_cap_factor);
 }
@@ -171,16 +174,32 @@ SpefReader::setBusBrackets(char left, char right)
   bus_brkt_right_ = right;
 }
 
+// defined in `SdfReader.cc`
+std::string
+removeSlash(std::string const& name);
+
 Instance *
 SpefReader::findInstanceRelative(const char *name)
 {
-  return network_->findInstanceRelative(instance_, name);
+  Instance* inst = network_->findInstanceRelative(instance_, name);
+  if (!inst) {
+    std::string no_slash = removeSlash(name);
+    inst = network_->findInstanceRelative(instance_, no_slash.c_str());
+  }
+  return inst;
+  // return network_->findInstanceRelative(instance_, name);
 }
 
 Net *
 SpefReader::findNetRelative(const char *name)
 {
-  return network_->findNetRelative(instance_, name);
+  Net* net = network_->findNetRelative(instance_, name);
+  if (!net) {
+    std::string no_slash = removeSlash(name);
+    net = network_->findNetRelative(instance_, no_slash.c_str());
+  }
+  return net;
+  // return network_->findNetRelative(instance_, name);
 }
 
 Pin *
@@ -471,12 +490,134 @@ SpefReader::dspfBegin(Net *net,
   delete total_cap;
 }
 
+class ReduceToMST {
+typedef ConcreteParasiticNode Node;
+typedef ConcreteParasiticDevice Device;
+public:
+  	ReduceToMST() = delete;
+  	ReduceToMST(Parasitic* p, Network* sta_network) {
+		network = (ConcreteParasiticNetwork *)(ConcreteParasitic*)p;
+	}
+	~ReduceToMST() = default;
+	void reduce() {
+    auto iter = network->deviceIterator();
+		Vector<Edge> edges;
+		father.clear();
+		ignore_devices.clear();
+		while(iter->hasNext()) {
+		auto device = (ConcreteParasiticDevice*) iter->next();
+		if(device->isResistor()) {
+			Node* u = device->node1();
+			Node* v = device->node2();
+			double w = device->value();
+			father.addNode(u);
+			father.addNode(v);
+			edges.emplace_back(Edge(u,v,w,device));
+		}
+		}
+		std::sort(edges.begin(),edges.end(),[](Edge a,Edge b) {
+		return a.w < b.w;
+		});
+		for(auto [u,v,w,device]:edges) {
+		if(father.alreadyConnected(u,v)){
+			ignore_devices.ignoreEdge(device);
+		}
+		}
+		ConcreteParasiticDeviceSet delete_device;
+		modifyDevices(delete_device);
+		delete_device.deleteContents();
+  	}
+
+private:
+  	ConcreteParasiticNetwork * network;
+	Network* sta_network;
+
+	class NodeRoot:public std::unordered_map<Node*,Node*> {
+	public:
+		void addNode(Node * x) {
+			if(!this->contains(x)){
+				this->insert(std::make_pair(x,x));
+			}
+		};
+
+		Node* findRoot(Node * x){
+			if(this->operator[](x) != x){
+				this->operator[](x) = findRoot(this->operator[](x));
+			}
+			return this->operator[](x);
+		}
+
+		bool alreadyConnected(Node * x,Node * y){
+			Node * t1 = findRoot(x);
+            Node * t2 = findRoot(y);
+			if(t1 != t2) {
+				this->operator[](t1) = t2;
+				return false;
+			}
+			return true;
+		}
+	} father;
+
+	class IgnoreDevicesSet:public std::set<Device*> {
+	public:
+		bool needsRemove(Device* device) {
+			return (device->isResistor() && this->contains(device));
+		}
+		void ignoreEdge(Device* device) {
+			this->insert(device);
+		}
+	} ignore_devices;
+
+	struct Edge {
+		Node* u;
+		Node* v;
+		double w;
+		Device* device;
+		Edge() = delete;
+		Edge(Node * u,Node * v,double w,Device* device):u(u),v(v),w(w),device(device){}
+		~Edge() = default;
+	};
+
+	void modifyDevices(ConcreteParasiticDeviceSet& delete_devices) {
+		auto sub_nodes_ = network->subNodes();
+		auto pin_nodes_ = network->pinNodes();
+		modifyNodeDevices(sub_nodes_,delete_devices);
+		modifyNodeDevices(pin_nodes_,delete_devices);
+	}
+
+	template<typename T> requires(std::is_same<T, ConcreteParasiticSubNodeMap>::value ||
+	                              std::is_same<T, ConcreteParasiticPinNodeMap>::value)
+	void modifyNodeDevices(T* node_map,ConcreteParasiticDeviceSet& delete_devices) {
+		typename T::Iterator node_iter(node_map);
+		while (node_iter.hasNext()) {
+			auto node = node_iter.next();
+			ConcreteParasiticDeviceSeq::Iterator device_iter(node->devices());
+			Vector<Device *> new_devices;
+			while (device_iter.hasNext()) {
+				Device *device = device_iter.next();
+				if(ignore_devices.needsRemove(device)){
+					delete_devices.insert(device);
+					continue;
+				}
+				new_devices.emplace_back(device);
+			}
+			node->modifyDevice(new_devices);
+		}
+	}
+};
+
 void
 SpefReader::dspfFinish()
 {
   if (parasitic_) {
     if (!quiet_)
       parasitics_->check(parasitic_);
+
+    if(!disable_reduce_parsitic_network_circle_) {
+      ReduceToMST model(parasitic_,network_);
+      model.reduce();
+    }
+
     if (reduce_to_ != ReducedParasiticType::none) {
       parasitics_->reduceTo(parasitic_, net_, reduce_to_, op_cond_,
 			    corner_, cnst_min_max_, ap_);
@@ -730,7 +871,7 @@ void spefFlushBuffer();
 int
 SpefParse_error(const char *msg)
 {
-  sta::spef_reader->warn(179, "%s.", msg);
   spefFlushBuffer();
+  sta::spef_reader->warn(707, "%s.", msg);
   return 0;
 }

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 #include "SearchPred.hh"
 #include "Search.hh"
 #include "Crpr.hh"
+#include "Liberty.hh"
 
 namespace sta {
 
@@ -273,6 +274,10 @@ ClkSkews::findClkSkew(Vertex *src_vertex,
   VertexPathIterator src_iter(src_vertex, this);
   while (src_iter.hasNext()) {
     PathVertex *src_path = src_iter.next();
+    LibertyCell *src_cell = network_->libertyPort(src_path->pin(this))->libertyCell();
+    if (src_cell->isClockGate()) {
+      continue;
+    }
     const Clock *src_clk = src_path->clock(this);
     if (src_rf->matches(src_path->transition(this))
 	&& src_path->minMax(this) == setup_hold
@@ -283,6 +288,10 @@ ClkSkews::findClkSkew(Vertex *src_vertex,
 	VertexPathIterator tgt_iter(tgt_vertex, this);
 	while (tgt_iter.hasNext()) {
 	  PathVertex *tgt_path = tgt_iter.next();
+          LibertyCell *tgt_cell = network_->libertyPort(tgt_path->pin(this))->libertyCell();
+          if (tgt_cell->isClockGate()) {
+            continue;
+          }
 	  const Clock *tgt_clk = tgt_path->clock(this);
 	  if (tgt_clk == src_clk
 	      && tgt_path->isClock(this)
@@ -356,6 +365,33 @@ ClkSkews::findFanout(Vertex *from)
     fanout_iter.enqueueAdjacentVertices(fanout);
   }
   return endpoints;
+}
+
+////////////////////////////////////////////////////////////////
+
+void
+ClkSkews::findClkDelays(const Clock *clk,
+                        // Return values.
+                        ClkDelays &delays)
+{
+  for (Vertex *clk_vertex : *graph_->regClkVertices()) {
+    VertexPathIterator path_iter(clk_vertex, this);
+    while (path_iter.hasNext()) {
+      PathVertex *path = path_iter.next();
+      const ClockEdge *path_clk_edge = path->clkEdge(this);
+      if (path_clk_edge) {
+        const RiseFall *clk_rf = path_clk_edge->transition();
+        const Clock *path_clk = path_clk_edge->clock();
+        if (path_clk == clk) {
+          Arrival arrival = path->arrival(this);
+          Delay clk_delay = delayAsFloat(arrival) - path_clk_edge->time();
+          const MinMax *min_max = path->minMax(this);
+          const RiseFall *rf = path->transition(this);
+          delays[clk_rf->index()][rf->index()].setValue(min_max, clk_delay);
+        }
+      }
+    }
+  }
 }
 
 } // namespace

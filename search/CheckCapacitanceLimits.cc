@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -137,7 +137,7 @@ CheckCapacitanceLimits::checkCapacitance1(const Pin *pin,
   }
 }
 
-// return the tightest limit.
+// Return the tightest limit.
 void
 CheckCapacitanceLimits::findLimit(const Pin *pin,
                                   const Corner *corner,
@@ -179,7 +179,7 @@ CheckCapacitanceLimits::findLimit(const Pin *pin,
           if (!exists1
               && corner_port->direction()->isAnyOutput()
               && min_max == MinMax::max())
-            corner_port->libertyLibrary()->defaultMaxSlew(limit1, exists1);
+            corner_port->libertyLibrary()->defaultMaxCapacitance(limit1, exists1);
           if (exists1
               && (!exists
                   || min_max->compare(limit, limit1))) {

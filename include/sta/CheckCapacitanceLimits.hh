@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -71,12 +71,14 @@ protected:
                          float &capacitance1,
                          float &limit1,
                          float &slack1) const;
+public:
   void findLimit(const Pin *pin,
                  const Corner *corner,
 		 const MinMax *min_max,
 		 // Return values.
 		 float &limit,
 		 bool &limit_exists) const;
+protected:
   void checkCapLimits(const Instance *inst,
                       bool violators,
                       const Corner *corner,

@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -30,11 +30,18 @@ project(STA VERSION 2.4.0
 
 option(USE_CUDD "Use CUDD BDD package")
 option(CUDD_DIR "CUDD BDD package directory")
+option(ABC_DIR  "ABC library directory" )
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
+set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
+
 message(STATUS "STA version: ${PROJECT_VERSION}")
+message(STATUS "ABC directory: ${ABC_DIR}")
+message(STATUS "ABC include directories: ${ABC_DIR}/src/base")
+message(STATUS "ABC include directories: ${ABC_DIR}/src/base/abc")
+message(STATUS "ABC include directories: ${ABC_DIR}/src/")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(GetGitRevisionDescription)
@@ -66,14 +73,14 @@ set(STA_SOURCE
   dcalc/ArnoldiReduce.cc
   dcalc/DcalcAnalysisPt.cc
   dcalc/DelayCalc.cc
+  dcalc/DelayCalcBase.cc
   dcalc/DmpCeff.cc
   dcalc/DmpDelayCalc.cc
   dcalc/GraphDelayCalc.cc
-  dcalc/GraphDelayCalc1.cc
   dcalc/LumpedCapDelayCalc.cc
   dcalc/NetCaps.cc
-  dcalc/RCDelayCalc.cc
-  dcalc/SimpleRCDelayCalc.cc
+  dcalc/ParallelDelayCalc.cc
+  dcalc/SlewDegradeDelayCalc.cc
   dcalc/UnitDelayCalc.cc
   
   graph/DelayFloat.cc
@@ -97,10 +104,17 @@ set(STA_SOURCE
   liberty/Sequential.cc
   liberty/TableModel.cc
   liberty/TimingArc.cc
+  liberty/TimingModel.cc
   liberty/TimingRole.cc
   liberty/Units.cc
   liberty/Wireload.cc
-  
+
+
+  #Abc lite
+  abclite/kit/Kit.cc  
+  abclite/extra/ExtraUtil.cc
+  abclite/npnencode/Npnencode.cc
+
   network/ConcreteLibrary.cc
   network/ConcreteNetwork.cc
   network/HpinDrvrLoad.cc
@@ -215,6 +229,7 @@ set(STA_SOURCE
   
   verilog/VerilogReader.cc
   verilog/VerilogWriter.cc
+  verilog/NameMapping.cc
   )
 
 # Source files.
@@ -363,6 +378,15 @@ target_include_directories(sta_swig
   PUBLIC
   include/sta
 
+  abclite/extra
+  abclite/global
+  abclite/kit
+  restr
+
+  ${ABC_DIR}/src/base}
+  ${ABC_DIR}/src/base/abc}  
+  ${ABC_DIR}/src
+
   PRIVATE
   ${STA_HOME}
   ${TCL_INCLUDE_PATH}
@@ -426,6 +450,8 @@ include(FindZLIB)
 
 find_package(Threads)
 
+
+
 ################################################################
 #
 # Locate CUDD bdd package.
@@ -435,14 +461,14 @@ if (USE_CUDD)
   find_library(CUDD_LIB
     NAME cudd
     PATHS ${CUDD_DIR}
-    PATH_SUFFIXES lib lib/cudd
+    PATH_SUFFIXES lib lib/cudd cudd/.libs
     )
   if (CUDD_LIB)
     message(STATUS "CUDD library: ${CUDD_LIB}")
     get_filename_component(CUDD_LIB_DIR "${CUDD_LIB}" PATH)
     get_filename_component(CUDD_LIB_PARENT1 "${CUDD_LIB_DIR}" PATH)
     find_file(CUDD_HEADER cudd.h
-      PATHS ${CUDD_LIB_PARENT1}/include ${CUDD_LIB_PARENT1}/include/cudd)
+      PATHS ${CUDD_LIB_PARENT1} ${CUDD_LIB_PARENT1}/include ${CUDD_LIB_PARENT1}/include/cudd)
     if (CUDD_HEADER)
       get_filename_component(CUDD_INCLUDE "${CUDD_HEADER}" PATH)
       message(STATUS "CUDD header: ${CUDD_HEADER}")
@@ -473,7 +499,10 @@ configure_file(${STA_HOME}/util/StaConfig.hh.cmake
 # compatibility with configure
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${STA_HOME}/app)
 
-add_library(OpenSTA
+add_library(OpenSTA)
+
+target_sources(OpenSTA
+  PRIVATE
   ${STA_SOURCE}
 
   ${STA_TCL_INIT}
@@ -493,11 +522,37 @@ add_library(OpenSTA
   ${BISON_VerilogParser_OUTPUTS}
 )
 
+target_link_libraries(OpenSTA
+  ${TCL_LIBRARY}
+  ${CMAKE_THREAD_LIBS_INIT}
+  )
+
+if (TCL_READLINE_LIBRARY)
+  target_link_libraries(OpenSTA ${TCL_READLINE_LIBRARY})
+endif()
+
+if (ZLIB_LIBRARIES)
+  target_link_libraries(OpenSTA ${ZLIB_LIBRARIES})
+endif()
+
+if (CUDD_LIB)
+  target_link_libraries(OpenSTA ${CUDD_LIB})
+endif()
+
 target_include_directories(OpenSTA
   PUBLIC
   include
   ${TCL_INCLUDE_PATH}
   ${TCL_READLINE_INCLUDE}
+
+  abclite/kit
+  abclite/extra
+  abclite/global
+  abclite/npnencode
+  restr
+  
+  ${ABC_DIR}/src
+
 
   PRIVATE
   include/sta
@@ -505,11 +560,14 @@ target_include_directories(OpenSTA
   ${CUDD_INCLUDE}
   )
 
+# common to gcc/clang
+set(CXX_FLAGS -Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security)
+
 target_compile_options(OpenSTA
   PRIVATE
-  $<$<CXX_COMPILER_ID:GNU>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security>
-  $<$<CXX_COMPILER_ID:AppleClang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments>
-  $<$<CXX_COMPILER_ID:Clang>:-Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments>
+  $<$<CXX_COMPILER_ID:GNU>:${CXX_FLAGS} -Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security> -DABC_NAMESPACE=abc
+  $<$<CXX_COMPILER_ID:AppleClang>:${CXX_FLAGS} -Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments> -DABC_NAMESPACE=abc
+  $<$<CXX_COMPILER_ID:Clang>:${CXX_FLAGS} -Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security -Wno-gnu-zero-variadic-macro-arguments> -DABC_NAMESPACE=abc
   )
 
 # Disable compiler specific extensions like gnu++11.
@@ -531,15 +589,18 @@ add_executable(sta app/Main.cc)
 target_link_libraries(sta
   sta_swig
   OpenSTA
+  libabc
   ${TCL_LIBRARY}
   ${CMAKE_THREAD_LIBS_INIT}
   )
 
-if (TCL_READLINE_LIBRARY)
-  target_link_libraries(sta ${TCL_READLINE_LIBRARY})
+if (ABC_LIB)
+  message(STATUS "ABC library: ${ABC_LIB}")
+  target_link_libraries(sta ${ABC_LIB}  ${CMAKE_DL_LIBS} )
 endif()
-
+  
 if (ZLIB_LIBRARIES)
+  message(STATUS "zlib library: ${ZLIB_LIBRARIES}")
   target_link_libraries(sta ${ZLIB_LIBRARIES})
 endif()
 

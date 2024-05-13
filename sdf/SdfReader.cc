@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,10 +16,12 @@
 
 #include "sdf/SdfReader.hh"
 
-#include <stdarg.h>
-#include <ctype.h>
+#include <cstdarg>
+#include <cctype>
+#include <sstream>
 
 #include "Error.hh"
+#include "Debug.hh"
 #include "Report.hh"
 #include "MinMax.hh"
 #include "TimingArc.hh"
@@ -33,6 +35,7 @@
 
 extern int
 SdfParse_parse();
+extern int SdfParse_debug;
 
 namespace sta {
 
@@ -55,13 +58,8 @@ class SdfPortSpec
 public:
   SdfPortSpec(Transition *tr,
 	      const char *port,
-	      const char *cond = nullptr) :
-    tr_(tr), port_(port), cond_(cond) {}
-  ~SdfPortSpec()
-  {
-    stringDelete(port_);
-    stringDelete(cond_);
-  }
+	      const char *cond);
+  ~SdfPortSpec();
   const char *port() const { return port_; }
   Transition *transition() const { return tr_; }
   const char *cond() const { return cond_; }
@@ -140,6 +138,7 @@ SdfReader::read()
 {
   // Use zlib to uncompress gzip'd files automagically.
   stream_ = gzopen(filename_, "rb");
+  //::SdfParse_debug = 1;
   if (stream_) {
     // yyparse returns 0 on success.
     bool success = (::SdfParse_parse() == 0);
@@ -314,10 +313,10 @@ SdfReader::setInstance(const char *instance_name)
                   cell_name_);
       }
     }
-    stringDelete(instance_name);
   }
   else
     instance_ = nullptr;
+  stringDelete(instance_name);
 }
 
 void
@@ -345,12 +344,8 @@ SdfReader::iopath(SdfPortSpec *from_edge,
   if (instance_) {
     const char *from_port_name = from_edge->port();
     Cell *cell = network_->cell(instance_);
-    Port *from_port = network_->findPort(cell, from_port_name);
-    Port *to_port = network_->findPort(cell, to_port_name);
-    if (from_port == nullptr)
-      portNotFound(from_port_name);
-    if (to_port == nullptr)
-      portNotFound(to_port_name);
+    Port *from_port = findPort(cell, from_port_name);
+    Port *to_port = findPort(cell, to_port_name);
     if (from_port && to_port) {
       Pin *from_pin = network_->findPin(instance_, from_port_name);
       Pin *to_pin = network_->findPin(instance_, to_port_name);
@@ -409,18 +404,35 @@ SdfReader::iopath(SdfPortSpec *from_edge,
       }
     }
   }
-  deletePortSpec(from_edge);
   stringDelete(to_port_name);
+  deletePortSpec(from_edge);
   deleteTripleSeq(triples);
-  if (cond)
-    stringDelete(cond);
+  stringDelete(cond);
+}
+
+Port *
+SdfReader::findPort(const Cell *cell,
+                    const char *port_name)
+{
+  Port *port = network_->findPort(cell, port_name);
+  if (port == nullptr)
+    sdfWarn(194, "instance %s port %s not found.",
+            network_->pathName(instance_),
+            port_name);
+  return port;
 }
 
 void
 SdfReader::timingCheck(TimingRole *role, SdfPortSpec *data_edge,
 		       SdfPortSpec *clk_edge, SdfTriple *triple)
 {
-  timingCheck1(role, data_edge, clk_edge, triple, true);
+  const char *data_port_name = data_edge->port();
+  const char *clk_port_name = clk_edge->port();
+  Cell *cell = network_->cell(instance_);
+  Port *data_port = findPort(cell, data_port_name);
+  Port *clk_port = findPort(cell, clk_port_name);
+  if (data_port && clk_port)
+    timingCheck1(role, data_port, data_edge, clk_port, clk_edge, triple);
   deletePortSpec(data_edge);
   deletePortSpec(clk_edge);
   deleteTriple(triple);
@@ -428,64 +440,54 @@ SdfReader::timingCheck(TimingRole *role, SdfPortSpec *data_edge,
 
 void
 SdfReader::timingCheck1(TimingRole *role,
+                        Port *data_port,
 			SdfPortSpec *data_edge,
+                        Port *clk_port,
 			SdfPortSpec *clk_edge,
-			SdfTriple *triple,
-			bool warn)
+			SdfTriple *triple)
 {
   // Ignore non-incremental annotations in incremental only mode.
   if (!(is_incremental_only_ && !in_incremental_)
       && instance_) {
-    const char *data_port_name = data_edge->port();
-    const char *clk_port_name = clk_edge->port();
-    Cell *cell = network_->cell(instance_);
-    Port *data_port = network_->findPort(cell, data_port_name);
-    Port *clk_port = network_->findPort(cell, clk_port_name);
-    if (data_port == nullptr && warn)
-      portNotFound(data_port_name);
-    if (clk_port == nullptr && warn)
-      portNotFound(clk_port_name);
-    if (data_port && clk_port) {
-      Pin *data_pin = network_->findPin(instance_, data_port_name);
-      Pin *clk_pin = network_->findPin(instance_, clk_port_name);
-      if (data_pin && clk_pin) {
-	// Hack: always use triple max value for check.
-        float **values = triple->values();
-        float *value_min = values[triple_min_index_];
-        float *value_max = values[triple_max_index_];
-        if (value_min && value_max) {
-          switch (analysis_type_) {
-          case AnalysisType::single:
-            break;
-          case AnalysisType::bc_wc:
-            if (role->genericRole() == TimingRole::setup())
-              *value_min = *value_max;
-            else
-              *value_max = *value_min;
-            break;
-          case AnalysisType::ocv:
+    Pin *data_pin = network_->findPin(instance_, data_port);
+    Pin *clk_pin = network_->findPin(instance_, clk_port);
+    if (data_pin && clk_pin) {
+      // Hack: always use triple max value for check.
+      float **values = triple->values();
+      float *value_min = values[triple_min_index_];
+      float *value_max = values[triple_max_index_];
+      if (value_min && value_max) {
+        switch (analysis_type_) {
+        case AnalysisType::single:
+          break;
+        case AnalysisType::bc_wc:
+          if (role->genericRole() == TimingRole::setup())
             *value_min = *value_max;
-            break;
-          }
+          else
+            *value_max = *value_min;
+          break;
+        case AnalysisType::ocv:
+          *value_min = *value_max;
+          break;
         }
-	bool matched = annotateCheckEdges(data_pin, data_edge,
-					  clk_pin, clk_edge, role,
-					  triple, false);
-	// Liberty setup/hold checks on preset/clear pins can be translated
-	// into recovery/removal checks, so be flexible about matching.
-	if (!matched)
-	  matched = annotateCheckEdges(data_pin, data_edge,
-				       clk_pin, clk_edge, role,
-				       triple, true);
-	if (!matched
-	    // Only warn when non-null values are present.
-	    && triple->hasValue())
-	  sdfWarn(192, "cell %s %s -> %s %s check not found.",
-                  network_->cellName(instance_),
-                  data_port_name,
-                  clk_port_name,
-                  role->asString());
       }
+      bool matched = annotateCheckEdges(data_pin, data_edge,
+                                        clk_pin, clk_edge, role,
+                                        triple, false);
+      // Liberty setup/hold checks on preset/clear pins can be translated
+      // into recovery/removal checks, so be flexible about matching.
+      if (!matched)
+        matched = annotateCheckEdges(data_pin, data_edge,
+                                     clk_pin, clk_edge, role,
+                                     triple, true);
+      if (!matched
+          // Only warn when non-null values are present.
+          && triple->hasValue())
+        sdfWarn(192, "cell %s %s -> %s %s check not found.",
+                network_->cellName(instance_),
+                network_->name(data_port),
+                network_->name(clk_port),
+                role->asString());
     }
   }
 }
@@ -545,10 +547,8 @@ SdfReader::timingCheckWidth(SdfPortSpec *edge,
       && instance_) {
     const char *port_name = edge->port();
     Cell *cell = network_->cell(instance_);
-    Port *port = network_->findPort(cell, port_name);
-    if (port == nullptr)
-      portNotFound(port_name);
-    else {
+    Port *port = findPort(cell, port_name);
+    if (port) {
       Pin *pin = network_->findPin(instance_, port_name);
       if (pin) {
 	const RiseFall *rf = edge->transition()->asRiseFall();
@@ -575,6 +575,49 @@ SdfReader::timingCheckWidth(SdfPortSpec *edge,
 }
 
 void
+SdfReader::timingCheckSetupHold(SdfPortSpec *data_edge,
+				SdfPortSpec *clk_edge,
+				SdfTriple *setup_triple,
+				SdfTriple *hold_triple)
+{
+  timingCheckSetupHold1(data_edge, clk_edge, setup_triple, hold_triple,
+                        TimingRole::setup(), TimingRole::hold());
+}
+
+void
+SdfReader::timingCheckRecRem(SdfPortSpec *data_edge,
+			     SdfPortSpec *clk_edge,
+			     SdfTriple *rec_triple,
+			     SdfTriple *rem_triple)
+{
+  timingCheckSetupHold1(data_edge, clk_edge, rec_triple, rem_triple,
+                        TimingRole::recovery(), TimingRole::removal());
+}
+
+void
+SdfReader::timingCheckSetupHold1(SdfPortSpec *data_edge,
+                                 SdfPortSpec *clk_edge,
+                                 SdfTriple *setup_triple,
+                                 SdfTriple *hold_triple,
+                                 TimingRole *setup_role,
+                                 TimingRole *hold_role)
+{
+  const char *data_port_name = data_edge->port();
+  const char *clk_port_name = clk_edge->port();
+  Cell *cell = network_->cell(instance_);
+  Port *data_port = findPort(cell, data_port_name);
+  Port *clk_port = findPort(cell, clk_port_name);
+  if (data_port && clk_port) {
+    timingCheck1(setup_role, data_port, data_edge, clk_port, clk_edge, setup_triple);
+    timingCheck1(hold_role, data_port, data_edge, clk_port, clk_edge, hold_triple);
+  }
+  deletePortSpec(data_edge);
+  deletePortSpec(clk_edge);
+  deleteTriple(setup_triple);
+  deleteTriple(hold_triple);
+}
+
+void
 SdfReader::timingCheckPeriod(SdfPortSpec *edge,
 			     SdfTriple *triple)
 {
@@ -583,10 +626,8 @@ SdfReader::timingCheckPeriod(SdfPortSpec *edge,
       && instance_) {
     const char *port_name = edge->port();
     Cell *cell = network_->cell(instance_);
-    Port *port = network_->findPort(cell, port_name);
-    if (port == nullptr)
-      portNotFound(port_name);
-    else {
+    Port *port = findPort(cell, port_name);
+    if (port) {
       // Edge specifier is ignored for period checks.
       Pin *pin = network_->findPin(instance_, port_name);
       if (pin) {
@@ -608,34 +649,6 @@ SdfReader::timingCheckPeriod(SdfPortSpec *edge,
   }
   deletePortSpec(edge);
   deleteTriple(triple);
-}
-
-void
-SdfReader::timingCheckSetupHold(SdfPortSpec *data_edge,
-				SdfPortSpec *clk_edge,
-				SdfTriple *setup_triple,
-				SdfTriple *hold_triple)
-{
-  timingCheck1(TimingRole::setup(), data_edge, clk_edge, setup_triple, true);
-  timingCheck1(TimingRole::hold(), data_edge, clk_edge, hold_triple, false);
-  deletePortSpec(data_edge);
-  deletePortSpec(clk_edge);
-  deleteTriple(setup_triple);
-  deleteTriple(hold_triple);
-}
-
-void
-SdfReader::timingCheckRecRem(SdfPortSpec *data_edge,
-			     SdfPortSpec *clk_edge,
-			     SdfTriple *rec_triple,
-			     SdfTriple *rem_triple)
-{
-  timingCheck1(TimingRole::recovery(), data_edge, clk_edge, rec_triple, true);
-  timingCheck1(TimingRole::removal(), data_edge, clk_edge, rem_triple, false);
-  deletePortSpec(data_edge);
-  deletePortSpec(clk_edge);
-  deleteTriple(rec_triple);
-  deleteTriple(rem_triple);
 }
 
 void
@@ -675,10 +688,8 @@ SdfReader::device(const char *to_port_name,
   if (!(is_incremental_only_ && !in_incremental_)
       && instance_) {
     Cell *cell = network_->cell(instance_);
-    Port *to_port = network_->findPort(cell, to_port_name);
-    if (to_port == nullptr)
-      portNotFound(to_port_name);
-    else {
+    Port *to_port = findPort(cell, to_port_name);
+    if (to_port) {
       Pin *to_pin = network_->findPin(instance_, to_port_name);
       setDevicePinDelays(to_pin, triples);
     }
@@ -818,11 +829,14 @@ SdfReader::makePortSpec(Transition *tr,
 			const char *port,
 			const char *cond)
 {
-  return new SdfPortSpec(tr, port, cond);
+  SdfPortSpec *port_spec = new SdfPortSpec(tr, port, cond);
+  stringDelete(port);
+  stringDelete(cond);
+  return port_spec;
 }
 
 SdfPortSpec *
-SdfReader::makeCondPortSpec(char *cond_port)
+SdfReader::makeCondPortSpec(const char *cond_port)
 {
   // Search from end to find port name because condition may contain spaces.
   string cond_port1(cond_port);
@@ -833,13 +847,14 @@ SdfReader::makeCondPortSpec(char *cond_port)
     auto cond_end = cond_port1.find_last_not_of(" ", port_idx);
     if (cond_end != cond_port1.npos) {
       string cond1 = cond_port1.substr(0, cond_end + 1);
-      SdfPortSpec *port_spec = makePortSpec(Transition::riseFall(),
-                                            stringCopy(port1.c_str()),
-                                            stringCopy(cond1.c_str()));
+      SdfPortSpec *port_spec = new SdfPortSpec(Transition::riseFall(),
+                                               port1.c_str(),
+                                               cond1.c_str());
       stringDelete(cond_port);
       return port_spec;
     }
   }
+  stringDelete(cond_port);
   return nullptr;
 }
 
@@ -914,16 +929,16 @@ SdfReader::unescaped(const char *token)
 {
   char path_escape = network_->pathEscape();
   char path_divider = network_->pathDivider();
-  char *unescaped = makeTmpString(strlen(token) + 1);
+  char *unescaped = new char[strlen(token) + 1];
   char *u = unescaped;
-  for (const char *s = token; *s ; s++) {
-    char ch = *s;
+  size_t token_length = strlen(token);
 
+  for (size_t i = 0; i < token_length; i++) {
+    char ch = token[i];
     if (ch == escape_) {
-      char next_ch = s[1];
-
+      char next_ch = token[i + 1];
       if (next_ch == divider_) {
-	// Escaped divider.
+        // Escaped divider.
 	// Translate sdf escape to network escape.
 	*u++ = path_escape;
 	// Translate sdf divider to network divider.
@@ -938,19 +953,32 @@ SdfReader::unescaped(const char *token)
 	*u++ = next_ch;
       }
       else
-	// Escaped non-divider/bracket character.
-	*u++ = next_ch;
-      s++;
+        // Escaped non-divider character.
+        *u++ = next_ch;
+      i++;
     }
-    else if (ch == divider_)
-      // Translate sdf divider to network divider.
-      *u++ = path_divider;
     else
       // Just the normal noises.
       *u++ = ch;
   }
   *u = '\0';
+  debugPrint(debug_, "sdf_name", 1, "token %s -> %s", token, unescaped);
+  stringDelete(token);
   return unescaped;
+}
+
+// Translate sdf divider to network divider.
+char *
+SdfReader::makePath(const char *head,
+                    const char *tail)
+{
+  char *path = stringPrint("%s%c%s",
+                           head,
+                           network_->pathDivider(),
+                           tail);
+  sta::stringDelete(head);
+  sta::stringDelete(tail);
+  return path;
 }
 
 void
@@ -990,14 +1018,6 @@ SdfReader::notSupported(const char *feature)
 }
 
 void
-SdfReader::portNotFound(const char *port_name)
-{
-  sdfWarn(194, "instance %s port %s not found.",
-          network_->pathName(instance_),
-          port_name);
-}
-
-void
 SdfReader::sdfWarn(int id,
                    const char *fmt, ...)
 {
@@ -1017,17 +1037,27 @@ SdfReader::sdfError(int id,
   va_end(args);
 }
 
+std::string
+removeSlash(std::string const& name)
+{
+  std::stringstream ss;
+  for (auto it = name.begin(); it != name.end(); ++it)
+    if (*it != '\\') ss << *it;
+  return ss.str();
+}
+
 Pin *
 SdfReader::findPin(const char *name)
 {
-  if (path_) {
-    string path_name;
+  string path_name = name;
+  if (path_)
     stringPrint(path_name, "%s%c%s", path_, divider_, name);
-    Pin *pin = network_->findPin(path_name.c_str());
-    return pin;
-  }
-  else
-    return network_->findPin(name);
+    
+  Pin* pin = network_->findPin(path_name.c_str());
+  if (!pin)
+    pin = network_->findPin(removeSlash(path_name).c_str());
+  
+  return pin;
 }
 
 Instance *
@@ -1036,10 +1066,29 @@ SdfReader::findInstance(const char *name)
   string inst_name = name;
   if (path_)
     stringPrint(inst_name, "%s%c%s", path_, divider_, name);
-  Instance *inst = network_->findInstance(inst_name.c_str());
+  Instance* inst = network_->findInstance(inst_name.c_str());
+  if (!inst)
+    inst = network_->findInstance(removeSlash(inst_name).c_str());
   if (inst == nullptr)
-    sdfWarn(195, "instance %s not found.", inst_name.c_str());
+    sdfWarn(195, "instance %s not found.", removeSlash(inst_name).c_str());
   return inst;
+}
+
+////////////////////////////////////////////////////////////////
+
+SdfPortSpec::SdfPortSpec(Transition *tr,
+                         const char *port,
+                         const char *cond) :
+  tr_(tr),
+  port_(stringCopy(port)),
+  cond_(stringCopy(cond))
+{
+}
+
+SdfPortSpec::~SdfPortSpec()
+{
+  stringDelete(port_);
+  stringDelete(cond_);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1079,7 +1128,7 @@ void sdfFlushBuffer();
 int
 SdfParse_error(const char *msg)
 {
-  sta::sdf_reader->sdfError(196, "%s.\n", msg);
   sdfFlushBuffer();
+  sta::sdf_reader->sdfError(196, "%s.\n", msg);
   return 0;
 }

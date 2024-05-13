@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -157,11 +157,11 @@ public:
 			       DcalcAPIndex ap_index,
 			       const ArcDelay &delay);
   // Is timing arc delay annotated.
-  bool arcDelayAnnotated(Edge *edge,
-			 TimingArc *arc,
+  bool arcDelayAnnotated(const Edge *edge,
+			 const TimingArc *arc,
 			 DcalcAPIndex ap_index) const;
   void setArcDelayAnnotated(Edge *edge,
-			    TimingArc *arc,
+			    const TimingArc *arc,
 			    DcalcAPIndex ap_index,
 			    bool annotated);
   bool wireDelayAnnotated(Edge *edge,
@@ -232,8 +232,6 @@ protected:
 		     Edge *edge);
   void removeDelays();
   void removeDelayAnnotated(Edge *edge);
-  // User defined predicate to filter graph edges for liberty timing arcs.
-  virtual bool filterEdge(TimingArcSet *) const { return true; }
 
   VertexTable *vertices_;
   EdgeTable *edges_;
@@ -541,7 +539,6 @@ class VertexSet : public Set<Vertex*, VertexIdLess>
 {
 public:
   VertexSet(Graph *&graph);
-  VertexSet(const VertexSet &set);
 };
 
 } // namespace

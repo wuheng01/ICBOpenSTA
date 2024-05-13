@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,33 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#pragma once
-
-#include "LumpedCapDelayCalc.hh"
+#include "TimingModel.hh"
 
 namespace sta {
 
-// Base class for delay calculators with RC wire delay.
-class RCDelayCalc : public LumpedCapDelayCalc
+GateTimingModel::GateTimingModel(LibertyCell *cell) :
+  TimingModel(cell)
 {
-public:
-  RCDelayCalc(StaState *sta);
-  virtual ArcDelayCalc *copy();
-  virtual void inputPortDelay(const Pin *port_pin,
-			      float in_slew,
-			      const RiseFall *rf,
-			      const Parasitic *parasitic,
-			      const DcalcAnalysisPt *dcalc_ap);
+}
 
-protected:
-  // Helper function for input ports driving dspf parasitic.
-  void dspfWireDelaySlew(const Pin *load_pin,
-			 float elmore,
-			 ArcDelay &wire_delay,
-			 Slew &load_slew);
-
-  const LibertyCell *drvr_cell_;
-  const Parasitic *drvr_parasitic_;
-};
+CheckTimingModel::CheckTimingModel(LibertyCell *cell) :
+  TimingModel(cell)
+{
+}
 
 } // namespace

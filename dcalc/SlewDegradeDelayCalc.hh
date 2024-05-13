@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,19 +18,10 @@
 
 namespace sta {
 
-// Write a spice deck for path.
-// Throws FileNotReadable, FileNotWritable, SubcktEndsMissing
-void
-writeSpice(Path *path,
-	   // Spice file written for path.
-	   const char *spice_filename,
-	   // Subckts used by path included in spice file.
-	   const char *subckts_filename,
-	   // File of all cell spice subckt definitions.
-	   const char *lib_subckts_filename,
-	   // Device model file included in spice file.
-	   const char *models_filename,
-	   StaState *sta);
+class ArcDelayCalc;
+class StaState;
+
+ArcDelayCalc *
+makeSlewDegradeDelayCalc(StaState *sta);
 
 } // namespace
-#endif

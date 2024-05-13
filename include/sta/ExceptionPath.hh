@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -61,7 +61,8 @@ public:
   ExceptionThruSeq *thrus() const { return thrus_; }
   ExceptionTo *to() const { return to_; }
   ExceptionPt *firstPt();
-  bool intersectsPts(ExceptionPath *exception) const;
+  bool intersectsPts(ExceptionPath *exception,
+                     const Network *network) const;
   const MinMaxAll *minMax() const { return min_max_; }
   virtual bool matches(const MinMax *min_max,
 		       bool exact) const;
@@ -71,7 +72,8 @@ public:
   virtual bool resetMatch(ExceptionFrom *from,
 			  ExceptionThruSeq *thrus,
 			  ExceptionTo *to,
-			  const MinMaxAll *min_max);
+			  const MinMaxAll *min_max,
+                          const Network *network);
   // The priority remains the same even though pin/clock/net/inst objects
   // are added to the exceptions points during exception merging because
   // only exceptions with the same priority are merged.
@@ -262,7 +264,8 @@ public:
   virtual bool resetMatch(ExceptionFrom *from,
 			  ExceptionThruSeq *thrus,
 			  ExceptionTo *to,
-			  const MinMaxAll *min_max);
+			  const MinMaxAll *min_max,
+                          const Network *network);
   virtual int typePriority() const;
   virtual bool tighterThan(ExceptionPath *exception) const;
 };
@@ -319,8 +322,7 @@ public:
   virtual void mergeInto(ExceptionPt *pt,
                          const Network *network) = 0;
   // All pins and instance/net pins.
-  virtual void allPins(const Network *network,
-		       PinSet *pins) = 0;
+  virtual PinSet allPins(const Network *network) = 0;
   virtual int typePriority() const = 0;
   virtual const char *asString(const Network *network) const = 0;
   virtual size_t objectCount() const = 0;
@@ -375,8 +377,7 @@ public:
   bool hasObjects() const;
   void deleteObjects(ExceptionFromTo *pt,
                      const Network *network);
-  virtual void allPins(const Network *network,
-		       PinSet *pins);
+  virtual PinSet allPins(const Network *network);
   bool equal(ExceptionFromTo *from_to) const;
   virtual int compare(ExceptionPt *pt,
 		      const Network *network) const;
@@ -424,7 +425,8 @@ public:
                 const Network *network);
   ExceptionFrom *clone(const Network *network);
   virtual bool isFrom() const { return true; }
-  bool intersectsPts(ExceptionFrom *from) const;
+  bool intersectsPts(ExceptionFrom *from,
+                     const Network *network) const;
   virtual int typePriority() const { return 0; }
 
 protected:
@@ -448,7 +450,8 @@ public:
   virtual bool isTo() const { return true; }
   const char *asString(const Network *network) const;
   const RiseFallBoth *endTransition() { return end_rf_; }
-  bool intersectsPts(ExceptionTo *to) const;
+  bool intersectsPts(ExceptionTo *to,
+                     const Network *network) const;
   virtual int typePriority() const { return 1; }
   bool matches(const Pin *pin,
  	       const ClockEdge *clk_edge, 
@@ -500,8 +503,7 @@ public:
   bool hasObjects() const;
   void deleteObjects(ExceptionThru *pt,
                      const Network *network);
-  virtual void allPins(const Network *network,
-		       PinSet *pins);
+  virtual PinSet allPins(const Network *network);
   bool matches(const Pin *from_pin,
 	       const Pin *to_pin,
 	       const RiseFall *to_rf,
@@ -511,7 +513,8 @@ public:
 		      const Network *network) const;
   virtual void mergeInto(ExceptionPt *pt,
                          const Network *network);
-  bool intersectsPts(ExceptionThru *thru) const;
+  bool intersectsPts(ExceptionThru *thru,
+                     const Network *network) const;
   virtual int typePriority() const { return 2; }
   virtual size_t objectCount() const;
   virtual void connectPinAfter(PinSet *drvrs,

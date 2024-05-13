@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -249,7 +249,7 @@ proc report_delays_wrt_clk { vertex what clk clk_rf } {
     set rise_fmt [format_delays $rise]
     set fall_fmt [format_delays $fall]
     if {$clk != "NULL"} {
-      set clk_str " ([get_name $clk] [rise_fall_short_name $clk_rf])"
+      set clk_str " ([get_name $clk] [rf_short_name $clk_rf])"
     } else {
       set clk_str ""
     }
@@ -281,21 +281,11 @@ proc report_wrt_clk { vertex what clk clk_rf } {
     set rise_fmt [format_times $rise $sta_report_default_digits]
     set fall_fmt [format_times $fall $sta_report_default_digits]
     if {$clk != "NULL"} {
-      set clk_str " ([get_name $clk] [rise_fall_short_name $clk_rf])"
+      set clk_str " ([get_name $clk] [rf_short_name $clk_rf])"
     } else {
       set clk_str ""
     }
     report_line "$clk_str r $rise_fmt f $fall_fmt"
-  }
-}
-
-proc rise_fall_short_name { tr } {
-  if { $tr eq "rise" } {
-    return [rise_short_name]
-  } elseif { $tr eq "fall" } {
-    return [fall_short_name]
-  } else {
-    error "unknown transition name $tr"
   }
 }
 
@@ -441,7 +431,7 @@ proc_redirect report_check_types {
 
   set net "NULL"
   if { [info exists keys(-net)] } {
-    set net [get_net_warn "-net" $keys(-net)]
+    set net [get_net_arg "-net" $keys(-net)]
   }
 
   if { $args == {} } {
@@ -685,12 +675,12 @@ define_cmd_args "report_disabled_edges" {}
 
 ################################################################
 
-define_cmd_args "report_tns" { [-digits digits]}
+define_cmd_args "report_tns" { [-digits digits] [-min]}
 
 proc_redirect report_tns {
   global sta_report_default_digits
 
-  parse_key_args "report_tns" args keys {-digits} flags {}
+  parse_key_args "report_tns" args keys {-digits} flags {-min}
   if [info exists keys(-digits)] {
     set digits $keys(-digits)
     check_positive_integer "-digits" $digits
@@ -698,17 +688,23 @@ proc_redirect report_tns {
     set digits $sta_report_default_digits
   }
 
-  report_line "tns [format_time [total_negative_slack_cmd "max"] $digits]"
+  if [info exists flags(-min)] {
+    set mode "min"
+  } else {
+    set mode "max"
+  }
+
+  report_line "tns [format_time [total_negative_slack_cmd $mode] $digits]"
 }
 
 ################################################################
 
-define_cmd_args "report_wns" { [-digits digits]}
+define_cmd_args "report_wns" { [-digits digits] [-min]}
 
 proc_redirect report_wns {
   global sta_report_default_digits
 
-  parse_key_args "report_wns" args keys {-digits} flags {}
+  parse_key_args "report_wns" args keys {-digits} flags {-min}
   if [info exists keys(-digits)] {
     set digits $keys(-digits)
     check_positive_integer "-digits" $digits
@@ -716,7 +712,13 @@ proc_redirect report_wns {
     set digits $sta_report_default_digits
   }
 
-  set slack [worst_slack_cmd "max"]
+  if [info exists flags(-min)] {
+    set mode "min"
+  } else {
+    set mode "max"
+  }
+
+  set slack [worst_slack_cmd $mode]
   if { $slack > 0.0 } {
     set slack 0.0
   }
@@ -846,7 +848,7 @@ proc parse_rise_fall_arg { arg } {
   if { $arg eq "r" || $arg eq "^" || $arg eq "rise" } {
     return "rise"
   } elseif { $arg eq "f" || $arg eq "v" || $arg eq "fall" } {
-    retur "fall"
+    return "fall"
   } else {
     error "unknown rise/fall transition name."
   }
@@ -908,17 +910,20 @@ proc parse_report_path_options { cmd args_var default_format
     set report_input_pin [expr [lsearch $fields "input*"] != -1]
     set report_cap [expr [lsearch $fields "cap*"] != -1]
     set report_net [expr [lsearch $fields "net*"] != -1]
-    # transition_time - compatibility 06/24/2019
-    set report_slew [expr [lsearch $fields "slew*"] != -1 \
-		       || [lsearch $fields "trans*"] != -1]
+    set report_slew [expr [lsearch $fields "slew*"] != -1]
+    set report_fanout [expr [lsearch $fields "fanout*"] != -1]
+    if { [expr [lsearch $fields "trans*"] != -1] } {
+      sta_warn 1640 "The transition_time field is deprecated. Use slew instead."
+    }
   } else {
     set report_input_pin 0
     set report_cap 0
     set report_net 0
     set report_slew 0
+    set report_fanout 0
   }
   set_report_path_fields $report_input_pin $report_net \
-    $report_cap $report_slew
+    $report_cap $report_slew $report_fanout
 
   set_report_path_no_split [info exists path_options(-no_line_splits)]
 }
@@ -1160,6 +1165,44 @@ proc max_capacitance_check_slack_limit {} {
 # max fanout slack / limit
 proc max_fanout_check_slack_limit {} {
   return [expr [sta::max_fanout_check_slack] / [sta::max_fanout_check_limit]]
+}
+
+################################################################
+
+proc rf_short_name { rf } {
+  if { [rf_is_rise $rf] } {
+    return [rise_short_name]
+  } elseif { [rf_is_fall $rf] } {
+    return [fall_short_name]
+  } else {
+    error "unknown transition name $rf"
+  }
+}
+
+proc opposite_rf { rf } {
+  if { [rf_is_rise $rf] } {
+    return "fall"
+  } elseif { [rf_is_fall $rf] } {
+    return "rise"
+  } else {
+    error "opposite_rf unknown transition $rf"
+  }
+}
+
+proc rf_is_rise { rf } {
+  if { $rf == "rise" || $rf == "^" || $rf == "r"} {
+    return 1
+  } else {
+    return 0
+  }
+}
+
+proc rf_is_fall { rf } {
+  if { $rf == "fall" || $rf == "v" || $rf == "f"} {
+    return 1
+  } else {
+    return 0
+  }
 }
 
 # sta namespace end.

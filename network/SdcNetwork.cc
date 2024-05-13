@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -22,10 +22,12 @@
 
 namespace sta {
 
-static const char *
+using std::to_string;
+
+static string
 escapeDividers(const char *token,
 	       const Network *network);
-static const char *
+static string
 escapeBrackets(const char *token,
 	       const Network *network);
 
@@ -631,21 +633,22 @@ SdcNetwork::findPort(const Cell *cell,
   Port *port = network_->findPort(cell, name);
   if (port == nullptr) {
     // Look for matches after escaping brackets.
-    char *bus_name;
+    bool is_bus;
+    string bus_name;
     int index;
-    parseBusName(name, '[', ']', pathEscape(), bus_name, index);
-    if (bus_name) {
-      const char *escaped1 = escapeBrackets(name, this);
-      port = network_->findPort(cell, escaped1);
-      if (port == nullptr
-	  && bus_name[strlen(bus_name) - 1] == ']') {
+    parseBusName(name, '[', ']', pathEscape(), is_bus, bus_name, index);
+    if (is_bus) {
+      string escaped1 = escapeBrackets(name, this);
+      port = network_->findPort(cell, escaped1.c_str());
+      if (port == nullptr) {
 	// Try escaping base foo\[0\][1]
-	const char *escaped2 = stringPrintTmp("%s[%d]",
-					      escapeBrackets(bus_name, this),
-					      index);
-	port = network_->findPort(cell, escaped2);
+        string escaped2;
+        string escaped_bus_name = escapeBrackets(bus_name.c_str(), this);
+        stringPrint(escaped2, "%s[%d]",
+                    escaped_bus_name.c_str(),
+                    index);
+	port = network_->findPort(cell, escaped2.c_str());
       }
-      stringDelete(bus_name);
     }
   }
   return port;
@@ -658,23 +661,24 @@ SdcNetwork::findPortsMatching(const Cell *cell,
   PortSeq matches = network_->findPortsMatching(cell, pattern);
   if (matches.empty()) {
     // Look for matches after escaping brackets.
-    char *bus_name;
+    bool is_bus;
+    string bus_name;
     int index;
-    parseBusName(pattern->pattern(), '[', ']', pathEscape(), bus_name, index);
-    if (bus_name) {
-      const char *escaped1 = escapeBrackets(pattern->pattern(), this);
-      PatternMatch escaped_pattern1(escaped1, pattern);
+    parseBusName(pattern->pattern(), '[', ']', pathEscape(),
+                 is_bus, bus_name, index);
+    if (is_bus) {
+      string escaped1 = escapeBrackets(pattern->pattern(), this);
+      PatternMatch escaped_pattern1(escaped1.c_str(), pattern);
       matches = network_->findPortsMatching(cell, &escaped_pattern1);
-      if (matches.empty()
-	  && bus_name[strlen(bus_name) - 1] == ']') {
+      if (matches.empty()) {
 	// Try escaping base foo\[0\][1]
-	const char *escaped2 = stringPrintTmp("%s[%d]",
-					      escapeBrackets(bus_name, this),
-					      index);
-	PatternMatch escaped_pattern2(escaped2, pattern);
+        string escaped_name = escapeBrackets(bus_name.c_str(), this);
+        escaped_name += '[';
+        escaped_name += to_string(index);
+        escaped_name += ']';
+	PatternMatch escaped_pattern2(escaped_name.c_str(), pattern);
 	matches = network_->findPortsMatching(cell, &escaped_pattern2);
       }
-      stringDelete(bus_name);
     }
   }
   return matches;
@@ -739,8 +743,10 @@ SdcNetwork::findInstance(const char *path_name) const
   if (parent == nullptr)
     parent = network_->topInstance();
   Instance *child = findChild(parent, child_name);
-  if (child == nullptr)
-    child = findChild(parent, escapeDividers(child_name, this));
+  if (child == nullptr) {
+    string escaped_name = escapeDividers(child_name, this);
+    child = findChild(parent, escaped_name.c_str());
+  }
   return child;
 }
 
@@ -774,8 +780,8 @@ SdcNetwork::findChild(const Instance *parent,
 {
   Instance *child = network_->findChild(parent, name);
   if (child == nullptr) {
-    const char *escaped = escapeBrackets(name, this);
-    child = network_->findChild(parent, escaped);
+    string escaped = escapeBrackets(name, this);
+    child = network_->findChild(parent, escaped.c_str());
   }
   return child;
 }
@@ -799,8 +805,8 @@ SdcNetwork::findNet(const Instance *instance,
 {
   Net *net = network_->findNet(instance, net_name);
   if (net == nullptr) {
-    const char *net_name_ = escapeBrackets(net_name, this);
-    net = network_->findNet(instance, net_name_);
+    string net_name1 = escapeBrackets(net_name, this);
+    net = network_->findNet(instance, net_name1.c_str());
   }
   return net;
 }
@@ -829,14 +835,13 @@ SdcNetwork::findInstNetsMatching(const Instance *instance,
   network_->findInstNetsMatching(instance, pattern, matches);
   if (matches.empty()) {
     // Look for matches after escaping path dividers.
-    const PatternMatch escaped_dividers(escapeDividers(pattern->pattern(),
-						       this),
-					pattern);
+    string escaped_pattern = escapeDividers(pattern->pattern(), this);
+    const PatternMatch escaped_dividers(escaped_pattern.c_str(), pattern);
     network_->findInstNetsMatching(instance, &escaped_dividers, matches);
     if (matches.empty()) {
       // Look for matches after escaping brackets.
-      const PatternMatch escaped_brkts(escapeBrackets(pattern->pattern(),this),
-				       pattern);
+      string escaped_pattern2 = escapeBrackets(pattern->pattern(),this);
+      const PatternMatch escaped_brkts(escaped_pattern2.c_str(), pattern);
       network_->findInstNetsMatching(instance, &escaped_brkts, matches);
     }
   }
@@ -862,21 +867,21 @@ SdcNetwork::findPin(const Instance *instance,
   Pin *pin = network_->findPin(instance, port_name);
   if (pin == nullptr) {
     // Look for match after escaping brackets.
-    char *bus_name;
+    bool is_bus;
+    string bus_name;
     int index;
-    parseBusName(port_name, '[', ']', pathEscape(), bus_name, index);
-    if (bus_name) {
-      const char *escaped1 = escapeBrackets(port_name, this);
-      pin = network_->findPin(instance, escaped1);
-      if (pin == nullptr
-	  && bus_name[strlen(bus_name) - 1] == ']') {
+    parseBusName(port_name, '[', ']', pathEscape(),
+                 is_bus, bus_name, index);
+    if (is_bus) {
+      string escaped1 = escapeBrackets(port_name, this);
+      pin = network_->findPin(instance, escaped1.c_str());
+      if (pin == nullptr) {
 	// Try escaping base foo\[0\][1]
-	const char *escaped2 = stringPrintTmp("%s[%d]",
-					      escapeBrackets(bus_name, this),
-					      index);
-	pin = network_->findPin(instance, escaped2);
+        string escaped_bus_name = escapeBrackets(bus_name.c_str(), this);
+        string escaped2;
+        stringPrint(escaped2, "%s[%d]", escaped_bus_name.c_str(), index);
+	pin = network_->findPin(instance, escaped2.c_str());
       }
-      stringDelete(bus_name);
     }
   }
   return pin;
@@ -925,8 +930,11 @@ SdcNetwork::visitPinTail(const Instance *instance,
       Port *port = port_iter->next();
       const char *port_name = network_->name(port);
       if (network_->hasMembers(port)) {
-	bool bus_matches = tail->match(port_name)
-	  || tail->match(escapeDividers(port_name, network_));
+	bool bus_matches = tail->match(port_name);
+        if (!bus_matches) {
+          string escaped_name = escapeDividers(port_name, network_);
+	  bus_matches = tail->match(escaped_name);
+        }
 	PortMemberIterator *member_iter = network_->memberIterator(port);
 	while (member_iter->hasNext()) {
 	  Port *member_port = member_iter->next();
@@ -938,8 +946,12 @@ SdcNetwork::visitPinTail(const Instance *instance,
 	    }
 	    else {
 	      const char *member_name = network_->name(member_port);
-	      if (tail->match(member_name)
-		  || tail->match(escapeDividers(member_name, network_))) {
+	      bool member_matches = tail->match(member_name);
+              if (!member_matches) {
+                string escaped_name = escapeDividers(member_name, network_);
+                member_matches = tail->match(escaped_name);
+              }
+              if (member_matches) {
 		matches.push_back(pin);
 		found_match = true;
 	      }
@@ -948,13 +960,19 @@ SdcNetwork::visitPinTail(const Instance *instance,
 	}
 	delete member_iter;
       }
-      else if (tail->match(port_name)
-	       || tail->match(escapeDividers(port_name, network_))) {
-	Pin *pin = network_->findPin(instance, port);
-	if (pin) {
-	  matches.push_back(pin);
-	  found_match = true;
-	}
+      else {
+        bool port_matches = tail->match(port_name);
+        if (!port_matches) {
+          string escaped_name = escapeDividers(port_name, network_);
+          port_matches = tail->match(escaped_name);
+        }
+        if (port_matches) {
+          Pin *pin = network_->findPin(instance, port);
+          if (pin) {
+            matches.push_back(pin);
+            found_match = true;
+          }
+        }
       }
     }
     delete port_iter;
@@ -967,16 +985,16 @@ SdcNetwork::makeInstance(LibertyCell *cell,
 			 const char *name,
 			 Instance *parent)
 {
-  const char *escaped_name = escapeDividers(name, this);
-  return network_edit_->makeInstance(cell, escaped_name, parent);
+  string escaped_name = escapeDividers(name, this);
+  return network_edit_->makeInstance(cell, escaped_name.c_str(), parent);
 }
 
 Net *
 SdcNetwork::makeNet(const char *name,
 		    Instance *parent)
 {
-  const char *escaped_name = escapeDividers(name, this);
-  return network_edit_->makeNet(escaped_name, parent);
+  string escaped_name = escapeDividers(name, this);
+  return network_edit_->makeNet(escaped_name.c_str(), parent);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1118,12 +1136,12 @@ SdcNetwork::visitMatches(const Instance *parent,
       *p = '\0';
       PatternMatch matcher(inst_path, pattern);
       InstanceSeq matches;
-      findChildrenMatching(parent, &matcher, matches);
+      network_->findChildrenMatching(parent, &matcher, matches);
       if (has_brkts && matches.empty()) {
 	// Look for matches after escaping brackets.
-	const PatternMatch escaped_brkts(escapeBrackets(inst_path, this),
-					 pattern); 
-	network_->findChildrenMatching(parent, &escaped_brkts, matches);
+        string escaped_brkts = escapeBrackets(inst_path, this);
+	const PatternMatch escaped_pattern(escaped_brkts, pattern);
+	network_->findChildrenMatching(parent, &escaped_pattern, matches);
       }
       if (!matches.empty()) {
 	// Found instance matches for the sub-path up to this divider.
@@ -1154,10 +1172,9 @@ SdcNetwork::visitMatches(const Instance *parent,
     found_match |= visit_tail(parent, &tail_pattern);
     if (!found_match && has_brkts) {
       // Look for matches after escaping brackets.
-      char *escaped_path = stringCopy(escapeBrackets(inst_path, this));
+      string escaped_path = escapeBrackets(inst_path, this);
       const PatternMatch escaped_tail(escaped_path, pattern);
       found_match |= visit_tail(parent, &escaped_tail);
-      stringDelete(escaped_path);
     }
   }
   stringDelete(inst_path);
@@ -1166,7 +1183,7 @@ SdcNetwork::visitMatches(const Instance *parent,
 
 ////////////////////////////////////////////////////////////////
 
-static const char *
+static string
 escapeDividers(const char *token,
 	       const Network *network)
 {
@@ -1174,7 +1191,7 @@ escapeDividers(const char *token,
 		     network->pathEscape());
 }
 
-static const char *
+static string
 escapeBrackets(const char *token,
 	       const Network *network)
 {

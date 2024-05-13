@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2022, Parallax Software, Inc.
+# Copyright (c) 2023, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,13 +28,14 @@ define_cmd_args "read_spef" \
      [-delete_after_reduce]\
      [-quiet]\
      [-save]\
+     [-disable_reduce_parsitic_network_circle]\
      filename}
 
 proc_redirect read_spef {
   parse_key_args "read_spef" args \
     keys {-path -coupling_reduction_factor -reduce_to -corner} \
     flags {-min -max -increment -pin_cap_included -keep_capacitive_coupling \
-	     -delete_after_reduce -quiet -save}
+	     -delete_after_reduce -quiet -save -disable_reduce_parsitic_network_circle}
   check_argc_eq1 "report_spef" $args
 
   set instance [top_instance]
@@ -65,13 +66,14 @@ proc_redirect read_spef {
   set delete_after_reduce [info exists flags(-delete_after_reduce)]
   set quiet [info exists flags(-quiet)]
   set save [info exists flags(-save)]
+  set disable_reduce_parsitic_network_circle [info exists flags(-disable_reduce_parsitic_network_circle)]
   set filename [file nativename [lindex $args 0]]
   if { [info exists flags(-increment)] } {
     sta_warn 706 "read_spef -increment is deprecated."
   }
   return [read_spef_cmd $filename $instance $corner $min_max \
 	    $pin_cap_included $keep_coupling_caps $coupling_reduction_factor \
-	    $reduce_to $delete_after_reduce $quiet]
+	    $reduce_to $delete_after_reduce $quiet $disable_reduce_parsitic_network_circle]
 }
 
 define_cmd_args "report_parasitic_annotation" {-report_unannotated}

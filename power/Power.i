@@ -3,7 +3,7 @@
 %{
 
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -43,12 +43,13 @@ FloatSeq
 design_power(const Corner *corner)
 {
   cmdLinkedNetwork();
-  PowerResult total, sequential, combinational, macro, pad;
-  Sta::sta()->power(corner, total, sequential, combinational, macro, pad);
+  PowerResult total, sequential, combinational, clock, macro, pad;
+  Sta::sta()->power(corner, total, sequential, combinational, clock, macro, pad);
   FloatSeq powers;
   pushPowerResultFloats(total, powers);
   pushPowerResultFloats(sequential, powers);
   pushPowerResultFloats(combinational, powers);
+  pushPowerResultFloats(clock, powers);
   pushPowerResultFloats(macro, powers);
   pushPowerResultFloats(pad, powers);
   return powers;

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -47,6 +47,11 @@ pinSlewProperty(const Pin *pin,
 		const RiseFall *rf,
 		const MinMax *min_max,
 		Sta *sta);
+static PropertyValue
+pinArrivalProperty(const Pin *pin,
+                   const RiseFall *rf,
+                   const MinMax *min_max,
+                   Sta *sta);
 static PropertyValue
 pinSlackProperty(const Pin *pin,
 		 const MinMax *min_max,
@@ -877,10 +882,23 @@ getProperty(const Pin *pin,
     ClockSet clks = sta->clocks(pin);
     return PropertyValue(&clks);
   }
+  else if (stringEqual(property, "clock_domains")) {
+    ClockSet clks = sta->clockDomains(pin);
+    return PropertyValue(&clks);
+  }
   else if (stringEqual(property, "activity")) {
     PwrActivity activity = sta->findClkedActivity(pin);
     return PropertyValue(&activity);
   }
+
+  else if (stringEqual(property, "arrival_max_rise"))
+    return pinArrivalProperty(pin, RiseFall::rise(), MinMax::max(), sta);
+  else if (stringEqual(property, "arrival_max_fall"))
+    return pinArrivalProperty(pin, RiseFall::fall(), MinMax::max(), sta);
+  else if (stringEqual(property, "arrival_min_rise"))
+    return pinArrivalProperty(pin, RiseFall::rise(), MinMax::min(), sta);
+  else if (stringEqual(property, "arrival_min_fall"))
+    return pinArrivalProperty(pin, RiseFall::fall(), MinMax::min(), sta);
 
   else if (stringEqual(property, "slack_max"))
     return pinSlackProperty(pin, MinMax::max(), sta);
@@ -910,6 +928,16 @@ getProperty(const Pin *pin,
 
   else
     throw PropertyUnknown("pin", property);
+}
+
+static PropertyValue
+pinArrivalProperty(const Pin *pin,
+                   const RiseFall *rf,
+                   const MinMax *min_max,
+                   Sta *sta)
+{
+  Arrival arrival = sta->pinArrival(pin, rf, min_max);;
+  return PropertyValue(delayPropertyValue(arrival, sta));
 }
 
 static PropertyValue
@@ -1004,7 +1032,9 @@ getProperty(Edge *edge,
     auto graph = sta->graph();
     const char *from = edge->from(graph)->name(network);
     const char *to = edge->to(graph)->name(network);
-    return PropertyValue(stringPrintTmp("%s -> %s", from, to));
+    string full_name;
+    stringPrint(full_name, "%s -> %s", from, to);
+    return PropertyValue(full_name);
   }
   if (stringEqual(property, "delay_min_fall"))
     return edgeDelayProperty(edge, RiseFall::fall(), MinMax::min(), sta);

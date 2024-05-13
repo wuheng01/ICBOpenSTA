@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2022, Parallax Software, Inc.
+// Copyright (c) 2023, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -191,7 +191,7 @@ Graph::makePortInstanceEdges(const Instance *inst,
     if ((from_to_port == nullptr
 	 || from_port == from_to_port
 	 || to_port == from_to_port)
-	&& filterEdge(arc_set)) {
+	&& from_port) {
       Pin *from_pin = network_->findPin(inst, from_port);
       Pin *to_pin = network_->findPin(inst, to_port);
       if (from_pin && to_pin) {
@@ -783,8 +783,8 @@ Graph::setWireArcDelay(Edge *edge,
 }
 
 bool
-Graph::arcDelayAnnotated(Edge *edge,
-			 TimingArc *arc,
+Graph::arcDelayAnnotated(const Edge *edge,
+			 const TimingArc *arc,
 			 DcalcAPIndex ap_index) const
 {
   if (arc_delay_annotated_.size()) {
@@ -799,7 +799,7 @@ Graph::arcDelayAnnotated(Edge *edge,
 
 void
 Graph::setArcDelayAnnotated(Edge *edge,
-			    TimingArc *arc,
+			    const TimingArc *arc,
 			    DcalcAPIndex ap_index,
 			    bool annotated)
 {
