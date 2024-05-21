@@ -444,11 +444,11 @@ ConcreteParasiticNode::net(const Network *network) const
   }
 }
 
-void
-ConcreteParasiticNode::modifyDevice(ConcreteParasiticDeviceSeq& device)
-{
-  devices_ = device;
-}
+// void
+// ConcreteParasiticNode::modifyDevice(ConcreteParasiticDeviceSeq& device)
+// {
+//   devices_ = device;
+// }
 
 ////////////////////////////////////////////////////////////////
 

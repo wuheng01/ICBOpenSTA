@@ -3370,7 +3370,7 @@ Sta::setCorners(const Sta* sta) {
   parasitics_->deleteParasitics();
   corners_->copy(corners);
   cmd_corner_ = corners_->findCorner(sta->cmd_corner_->index());
-  setParasiticAnalysisPts(sta->parasitics_per_corner_, sta->parasitics_per_min_max_);
+  setParasiticAnalysisPts(sta->parasitics_per_corner_/*, sta->parasitics_per_min_max_*/);
   sdc_->makeCornersAfter(corners_);
 }
 

@@ -108,8 +108,7 @@ SpefReader::SpefReader(const char *filename,
   res_scale_(1.0),
   induct_scale_(1.0),
   design_flow_(nullptr),
-  parasitic_(nullptr),
-  disable_reduce_parsitic_network_circle_(disable_reduce_parsitic_network_circle)
+  parasitic_(nullptr)
 {
   ap->setCouplingCapFactor(coupling_cap_factor);
 }
@@ -465,121 +464,121 @@ SpefReader::dspfBegin(Net *net,
   delete total_cap;
 }
 
-class ReduceToMST {
-typedef ConcreteParasiticNode Node;
-typedef ConcreteParasiticDevice Device;
-public:
-  	ReduceToMST() = delete;
-  	ReduceToMST(Parasitic* p, Network* sta_network) {
-		network = (ConcreteParasiticNetwork *)(ConcreteParasitic*)p;
-	}
-	~ReduceToMST() = default;
-	void reduce() {
-    auto iter = network->deviceIterator();
-		Vector<Edge> edges;
-		father.clear();
-		ignore_devices.clear();
-		while(iter->hasNext()) {
-		auto device = (ConcreteParasiticDevice*) iter->next();
-		if(device->isResistor()) {
-			Node* u = device->node1();
-			Node* v = device->node2();
-			double w = device->value();
-			father.addNode(u);
-			father.addNode(v);
-			edges.emplace_back(Edge(u,v,w,device));
-		}
-		}
-		std::sort(edges.begin(),edges.end(),[](Edge a,Edge b) {
-		return a.w < b.w;
-		});
-		for(auto [u,v,w,device]:edges) {
-		if(father.alreadyConnected(u,v)){
-			ignore_devices.ignoreEdge(device);
-		}
-		}
-		ConcreteParasiticDeviceSet delete_device;
-		modifyDevices(delete_device);
-		delete_device.deleteContents();
-  	}
+// class ReduceToMST {
+// typedef ConcreteParasiticNode Node;
+// typedef ConcreteParasiticDevice Device;
+// public:
+//   	ReduceToMST() = delete;
+//   	ReduceToMST(Parasitic* p, Network* sta_network) {
+// 		network = (ConcreteParasiticNetwork *)(ConcreteParasitic*)p;
+// 	}
+// 	~ReduceToMST() = default;
+// 	void reduce() {
+//     auto iter = network->deviceIterator();
+// 		Vector<Edge> edges;
+// 		father.clear();
+// 		ignore_devices.clear();
+// 		while(iter->hasNext()) {
+// 		auto device = (ConcreteParasiticDevice*) iter->next();
+// 		if(device->isResistor()) {
+// 			Node* u = device->node1();
+// 			Node* v = device->node2();
+// 			double w = device->value();
+// 			father.addNode(u);
+// 			father.addNode(v);
+// 			edges.emplace_back(Edge(u,v,w,device));
+// 		}
+// 		}
+// 		std::sort(edges.begin(),edges.end(),[](Edge a,Edge b) {
+// 		return a.w < b.w;
+// 		});
+// 		for(auto [u,v,w,device]:edges) {
+// 		if(father.alreadyConnected(u,v)){
+// 			ignore_devices.ignoreEdge(device);
+// 		}
+// 		}
+// 		ConcreteParasiticDeviceSet delete_device;
+// 		modifyDevices(delete_device);
+// 		delete_device.deleteContents();
+//   	}
 
-private:
-  	ConcreteParasiticNetwork * network;
-	Network* sta_network;
+// private:
+//   	ConcreteParasiticNetwork * network;
+// 	Network* sta_network;
 
-	class NodeRoot:public std::unordered_map<Node*,Node*> {
-	public:
-		void addNode(Node * x) {
-			if(!this->contains(x)){
-				this->insert(std::make_pair(x,x));
-			}
-		};
+// 	class NodeRoot:public std::unordered_map<Node*,Node*> {
+// 	public:
+// 		void addNode(Node * x) {
+// 			if(!this->contains(x)){
+// 				this->insert(std::make_pair(x,x));
+// 			}
+// 		};
 
-		Node* findRoot(Node * x){
-			if(this->operator[](x) != x){
-				this->operator[](x) = findRoot(this->operator[](x));
-			}
-			return this->operator[](x);
-		}
+// 		Node* findRoot(Node * x){
+// 			if(this->operator[](x) != x){
+// 				this->operator[](x) = findRoot(this->operator[](x));
+// 			}
+// 			return this->operator[](x);
+// 		}
 
-		bool alreadyConnected(Node * x,Node * y){
-			Node * t1 = findRoot(x);
-            Node * t2 = findRoot(y);
-			if(t1 != t2) {
-				this->operator[](t1) = t2;
-				return false;
-			}
-			return true;
-		}
-	} father;
+// 		bool alreadyConnected(Node * x,Node * y){
+// 			Node * t1 = findRoot(x);
+//             Node * t2 = findRoot(y);
+// 			if(t1 != t2) {
+// 				this->operator[](t1) = t2;
+// 				return false;
+// 			}
+// 			return true;
+// 		}
+// 	} father;
 
-	class IgnoreDevicesSet:public std::set<Device*> {
-	public:
-		bool needsRemove(Device* device) {
-			return (device->isResistor() && this->contains(device));
-		}
-		void ignoreEdge(Device* device) {
-			this->insert(device);
-		}
-	} ignore_devices;
+// 	class IgnoreDevicesSet:public std::set<Device*> {
+// 	public:
+// 		bool needsRemove(Device* device) {
+// 			return (device->isResistor() && this->contains(device));
+// 		}
+// 		void ignoreEdge(Device* device) {
+// 			this->insert(device);
+// 		}
+// 	} ignore_devices;
 
-	struct Edge {
-		Node* u;
-		Node* v;
-		double w;
-		Device* device;
-		Edge() = delete;
-		Edge(Node * u,Node * v,double w,Device* device):u(u),v(v),w(w),device(device){}
-		~Edge() = default;
-	};
+// 	struct Edge {
+// 		Node* u;
+// 		Node* v;
+// 		double w;
+// 		Device* device;
+// 		Edge() = delete;
+// 		Edge(Node * u,Node * v,double w,Device* device):u(u),v(v),w(w),device(device){}
+// 		~Edge() = default;
+// 	};
 
-	void modifyDevices(ConcreteParasiticDeviceSet& delete_devices) {
-		auto sub_nodes_ = network->subNodes();
-		auto pin_nodes_ = network->pinNodes();
-		modifyNodeDevices(sub_nodes_,delete_devices);
-		modifyNodeDevices(pin_nodes_,delete_devices);
-	}
+// 	void modifyDevices(ConcreteParasiticDeviceSet& delete_devices) {
+// 		auto sub_nodes_ = network->subNodes();
+// 		auto pin_nodes_ = network->pinNodes();
+// 		modifyNodeDevices(sub_nodes_,delete_devices);
+// 		modifyNodeDevices(pin_nodes_,delete_devices);
+// 	}
 
-	template<typename T> requires(std::is_same<T, ConcreteParasiticSubNodeMap>::value ||
-	                              std::is_same<T, ConcreteParasiticPinNodeMap>::value)
-	void modifyNodeDevices(T* node_map,ConcreteParasiticDeviceSet& delete_devices) {
-		typename T::Iterator node_iter(node_map);
-		while (node_iter.hasNext()) {
-			auto node = node_iter.next();
-			ConcreteParasiticDeviceSeq::Iterator device_iter(node->devices());
-			Vector<Device *> new_devices;
-			while (device_iter.hasNext()) {
-				Device *device = device_iter.next();
-				if(ignore_devices.needsRemove(device)){
-					delete_devices.insert(device);
-					continue;
-				}
-				new_devices.emplace_back(device);
-			}
-			node->modifyDevice(new_devices);
-		}
-	}
-};
+// 	template<typename T> requires(std::is_same<T, ConcreteParasiticSubNodeMap>::value ||
+// 	                              std::is_same<T, ConcreteParasiticPinNodeMap>::value)
+// 	void modifyNodeDevices(T* node_map,ConcreteParasiticDeviceSet& delete_devices) {
+// 		typename T::Iterator node_iter(node_map);
+// 		while (node_iter.hasNext()) {
+// 			auto node = node_iter.next();
+// 			ConcreteParasiticDeviceSeq::Iterator device_iter(node->devices());
+// 			Vector<Device *> new_devices;
+// 			while (device_iter.hasNext()) {
+// 				Device *device = device_iter.next();
+// 				if(ignore_devices.needsRemove(device)){
+// 					delete_devices.insert(device);
+// 					continue;
+// 				}
+// 				new_devices.emplace_back(device);
+// 			}
+// 			node->modifyDevice(new_devices);
+// 		}
+// 	}
+// };
 
 void
 SpefReader::dspfFinish()
