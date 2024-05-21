@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -87,10 +87,10 @@ BfsIterator::reportEntries(const Network *network)
   while (levelLessOrEqual(level, last_level_)) {
     VertexSeq &level_vertices = queue_[level];
     if (!level_vertices.empty()) {
-      printf("Level %d\n", level);
+      report_->reportLine("Level %d", level);
       for (auto vertex : level_vertices) {
 	if (vertex)
-	  printf(" %s\n", vertex->name(network));
+	  report_->reportLine(" %s", vertex->name(network));
       }
     }
     incrLevel(level);

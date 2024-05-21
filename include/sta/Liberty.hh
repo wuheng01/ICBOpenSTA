@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -531,6 +531,7 @@ public:
   // Check all liberty cells to make sure they exist
   // for all the defined corners.
   static void checkLibertyCorners();
+  void ensureVoltageWaveforms();
 
 protected:
   void addPort(ConcretePort *port);
@@ -606,6 +607,7 @@ protected:
   bool leakage_power_exists_;
   LibertyPgPortMap pg_port_map_;
   bool has_internal_ports_;
+  bool have_voltage_waveforms_;
 
 private:
   friend class LibertyLibrary;
@@ -726,17 +728,12 @@ public:
   void minPeriod(float &min_period,
 		 bool &exists) const;
   void setMinPeriod(float min_period);
+  // This corresponds to the min_pulse_width_high/low port attribute.
   // high = rise, low = fall
   void minPulseWidth(const RiseFall *hi_low,
-		     const OperatingConditions *op_cond,
-		     const Pvt *pvt,
 		     float &min_width,
 		     bool &exists) const;
-  // Unscaled value.
-  void minPulseWidth(const RiseFall *hi_low,
-		     float &min_width,
-		     bool &exists) const;
-  void setMinPulseWidth(RiseFall *hi_low,
+  void setMinPulseWidth(const RiseFall *hi_low,
 			float min_width);
   bool isClock() const;
   void setIsClock(bool is_clk);
@@ -793,7 +790,21 @@ public:
   DriverWaveform *driverWaveform(const RiseFall *rf) const;
   void setDriverWaveform(DriverWaveform *driver_waveform,
                          const RiseFall *rf);
-  RiseFallMinMax clockTreePathDelays();
+  void setClkTreeDelay(const TableModel *model,
+                       const RiseFall *from_rf,
+                       const RiseFall *to_rf,
+                       const MinMax *min_max);
+  // Should be deprecated.
+  float clkTreeDelay(float in_slew,
+                     const RiseFall *from_rf,
+                     const MinMax *min_max) const;
+  float clkTreeDelay(float in_slew,
+                     const RiseFall *from_rf,
+                     const RiseFall *to_rf,
+                     const MinMax *min_max) const;
+  // Assumes input slew of 0.0.
+  RiseFallMinMax clkTreeDelays() const;
+  RiseFallMinMax clockTreePathDelays() const __attribute__ ((deprecated));
 
   static bool equiv(const LibertyPort *port1,
 		    const LibertyPort *port2);
@@ -835,6 +846,8 @@ protected:
   Vector<LibertyPort*> corner_ports_;
   ReceiverModelPtr receiver_model_;
   DriverWaveform *driver_waveform_[RiseFall::index_count];
+  // Redundant with clock_tree_path_delay timing arcs but faster to access.
+  const TableModel *clk_tree_delay_[RiseFall::index_count][RiseFall::index_count][MinMax::index_count];
 
   unsigned int min_pulse_width_exists_:RiseFall::index_count;
   bool min_period_exists_:1;

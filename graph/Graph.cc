@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -47,7 +47,6 @@ Graph::Graph(StaState *sta,
   slew_rf_count_(slew_rf_count),
   have_arc_delays_(have_arc_delays),
   ap_count_(ap_count),
-  width_check_annotations_(nullptr),
   period_check_annotations_(nullptr),
   reg_clk_vertices_(new VertexSet(graph_))
 {
@@ -62,7 +61,6 @@ Graph::~Graph()
   delete reg_clk_vertices_;
   deleteSlewTables();
   deleteArcDelayTables();
-  removeWidthCheckAnnotations();
   removePeriodCheckAnnotations();
 }
 
@@ -106,7 +104,7 @@ public:
 			int &bidirect_count,
 			int &load_count,
 			const Network *network);
-  virtual void operator()(Pin *pin);
+  virtual void operator()(const Pin *pin);
 
 protected:
   Pin *drvr_pin_;
@@ -133,7 +131,7 @@ FindNetDrvrLoadCounts::FindNetDrvrLoadCounts(Pin *drvr_pin,
 }
 
 void
-FindNetDrvrLoadCounts::operator()(Pin *pin)
+FindNetDrvrLoadCounts::operator()(const Pin *pin)
 {
   if (network_->isDriver(pin)) {
     if (pin != drvr_pin_)
@@ -205,9 +203,9 @@ Graph::makePortInstanceEdges(const Instance *inst,
 	// Vertices can be missing from the graph if the pins
 	// are power or ground.
 	if (from_vertex) {
-  	  bool is_check = arc_set->role()->isTimingCheck();
-	  if (to_bidirect_drvr_vertex &&
-	      !is_check)
+          TimingRole *role = arc_set->role();
+  	  bool is_check = role->isTimingCheckBetween();
+	  if (to_bidirect_drvr_vertex && !is_check)
 	    makeEdge(from_vertex, to_bidirect_drvr_vertex, arc_set);
 	  else if (to_vertex) {
 	    makeEdge(from_vertex, to_vertex, arc_set);
@@ -276,9 +274,18 @@ Graph::makeWireEdgesFromPin(const Pin *drvr_pin,
 {
   // Find all drivers and loads on the net to avoid N*M run time
   // for large fanin/fanout nets.
-  PinSeq loads, drvrs;
+  PinSeq drvrs, loads;
   FindNetDrvrLoads visitor(drvr_pin, visited_drvrs, loads, drvrs, network_);
   network_->visitConnectedPins(drvr_pin, visitor);
+
+  if (isIsolatedNet(drvrs, loads)) {
+    for (auto drvr_pin : drvrs) {
+      visited_drvrs.insert(drvr_pin);
+      debugPrint(debug_, "graph", 1, "ignoring isolated driver %s",
+                 network_->pathName(drvr_pin));
+    }
+    return;
+  }
 
   for (auto drvr_pin : drvrs) {
     for (auto load_pin : loads) {
@@ -286,6 +293,35 @@ Graph::makeWireEdgesFromPin(const Pin *drvr_pin,
 	makeWireEdge(drvr_pin, load_pin);
     }
   }
+}
+
+// Check for nets with bidirect drivers that have no fanin or
+// fanout. One example of these nets are bidirect pad ring pins
+// are connected together but have no function but are marked
+// as signal nets.
+// These nets tickle N^2 behaviors that have no function.
+bool
+Graph::isIsolatedNet(PinSeq &drvrs,
+                     PinSeq &loads) const
+{
+  if (drvrs.size() < 10)
+    return false;
+  // Check that all drivers have no fanin.
+  for (auto drvr_pin : drvrs) {
+    Vertex *drvr_vertex = pinDrvrVertex(drvr_pin);
+    if (network_->isTopLevelPort(drvr_pin)
+        || drvr_vertex->hasFanin())
+      return false;
+  }
+  // Check for fanout on the load pins.
+  for (auto load_pin : loads) {
+    Vertex *load_vertex = pinLoadVertex(load_pin);
+    if (load_vertex->hasFanout()
+        || load_vertex->hasChecks()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void
@@ -498,6 +534,37 @@ Graph::deleteOutEdge(Vertex *vertex,
     Graph::edge(next)->vertex_out_prev_ = prev;
 }
 
+void
+Graph::gateEdgeArc(const Pin *in_pin,
+                   const RiseFall *in_rf,
+                   const Pin *drvr_pin,
+                   const RiseFall *drvr_rf,
+                   // Return values.
+                   Edge *&edge,
+                   const TimingArc *&arc) const
+{
+  Vertex *in_vertex = pinLoadVertex(in_pin);
+  Vertex *drvr_vertex = pinDrvrVertex(drvr_pin);
+  // Iterate over load drivers to avoid driver fanout^2.
+  VertexInEdgeIterator edge_iter(drvr_vertex, this);
+  while (edge_iter.hasNext()) {
+    Edge *edge1 = edge_iter.next();
+    if (edge1->from(this) == in_vertex) {
+      TimingArcSet *arc_set = edge1->timingArcSet();
+      for (TimingArc *arc1 : arc_set->arcs()) {
+        if (arc1->fromEdge()->asRiseFall() == in_rf
+            && arc1->toEdge()->asRiseFall() == drvr_rf) {
+          edge = edge1;
+          arc = arc1;
+          return;
+        }
+      }
+    }
+  }
+  edge = nullptr;
+  arc = nullptr;
+}
+
 ////////////////////////////////////////////////////////////////
 
 Arrival *
@@ -505,7 +572,7 @@ Graph::makeArrivals(Vertex *vertex,
 		    uint32_t count)
 {
   if (vertex->arrivals() != arrival_null)
-    debugPrint(debug_, "leaks", 617, "arrival leak");
+    debugPrint(debug_, "graph", 1, "arrival leak");
   Arrival *arrivals;
   ArrivalId id;
   {
@@ -538,7 +605,7 @@ Graph::makeRequireds(Vertex *vertex,
                      uint32_t count)
 {
   if (vertex->requireds() != arrival_null)
-    debugPrint(debug_, "leaks", 617, "required leak");
+    debugPrint(debug_, "graph", 1, "required leak");
   Required *requireds;
   ArrivalId id;
   {
@@ -787,10 +854,10 @@ Graph::arcDelayAnnotated(const Edge *edge,
 			 const TimingArc *arc,
 			 DcalcAPIndex ap_index) const
 {
-  if (arc_delay_annotated_.size()) {
+  if (!arc_delay_annotated_.empty()) {
     size_t index = (edge->arcDelays() + arc->index()) * ap_count_ + ap_index;
     if (index >= arc_delay_annotated_.size())
-      report_->critical(208, "arc_delay_annotated array bounds exceeded");
+      report_->critical(1080, "arc_delay_annotated array bounds exceeded");
     return arc_delay_annotated_[index];
   }
   else
@@ -805,7 +872,7 @@ Graph::setArcDelayAnnotated(Edge *edge,
 {
   size_t index = (edge->arcDelays() + arc->index()) * ap_count_ + ap_index;
   if (index >= arc_delay_annotated_.size())
-    report_->critical(209, "arc_delay_annotated array bounds exceeded");
+    report_->critical(1081, "arc_delay_annotated array bounds exceeded");
   arc_delay_annotated_[index] = annotated;
 }
 
@@ -817,7 +884,7 @@ Graph::wireDelayAnnotated(Edge *edge,
   size_t index = (edge->arcDelays() + TimingArcSet::wireArcIndex(rf)) * ap_count_
     + ap_index;
   if (index >= arc_delay_annotated_.size())
-    report_->critical(210, "arc_delay_annotated array bounds exceeded");
+    report_->critical(1082, "arc_delay_annotated array bounds exceeded");
   return arc_delay_annotated_[index];
 }
 
@@ -830,7 +897,7 @@ Graph::setWireDelayAnnotated(Edge *edge,
   size_t index = (edge->arcDelays() + TimingArcSet::wireArcIndex(rf)) * ap_count_
     + ap_index;
   if (index >= arc_delay_annotated_.size())
-    report_->critical(228, "arc_delay_annotated array bounds exceeded");
+    report_->critical(1083, "arc_delay_annotated array bounds exceeded");
   arc_delay_annotated_[index] = annotated;
 }
 
@@ -843,7 +910,6 @@ Graph::setDelayCount(DcalcAPIndex ap_count)
     // Discard any existing delays.
     deleteSlewTables();
     deleteArcDelayTables();
-    removeWidthCheckAnnotations();
     removePeriodCheckAnnotations();
     makeSlewTables(ap_count);
     makeArcDelayTables(ap_count);
@@ -886,11 +952,11 @@ Graph::delayAnnotated(Edge *edge)
   TimingArcSet *arc_set = edge->timingArcSet();
   for (TimingArc *arc : arc_set->arcs()) {
     for (DcalcAPIndex ap_index = 0; ap_index < ap_count_; ap_index++) {
-      if (arcDelayAnnotated(edge, arc, ap_index))
-	return true;
+      if (!arcDelayAnnotated(edge, arc, ap_index))
+	return false;
     }
   }
-  return false;
+  return true;
 }
 
 void
@@ -925,58 +991,28 @@ Graph::makeVertexSlews(Vertex *vertex)
 ////////////////////////////////////////////////////////////////
 
 void
-Graph::widthCheckAnnotation(const Pin *pin,
-			    const RiseFall *rf,
-			    DcalcAPIndex ap_index,
-			    // Return values.
-			    float &width,
-			    bool &exists)
+Graph::minPulseWidthArc(Vertex *vertex,
+                        // high = rise, low = fall
+                        const RiseFall *hi_low,
+                        // Return values.
+                        Edge *&edge,
+                        TimingArc *&arc)
 {
-  exists = false;
-  if (width_check_annotations_) {
-    float *widths = width_check_annotations_->findKey(pin);
-    if (widths) {
-      int index = ap_index * RiseFall::index_count + rf->index();
-      width = widths[index];
-      if (width >= 0.0)
-	exists = true;
+  VertexOutEdgeIterator edge_iter(vertex, this);
+  while (edge_iter.hasNext()) {
+    edge = edge_iter.next();
+    TimingArcSet *arc_set = edge->timingArcSet();
+    if (arc_set->role() == TimingRole::width()) {
+      for (TimingArc *arc1 : arc_set->arcs()) {
+        if (arc1->fromEdge()->asRiseFall() == hi_low) {
+          arc = arc1;
+          return;
+        }
+      }
     }
   }
-}
-
-void
-Graph::setWidthCheckAnnotation(const Pin *pin,
-			       const RiseFall *rf,
-			       DcalcAPIndex ap_index,
-			       float width)
-{
-  if (width_check_annotations_ == nullptr)
-    width_check_annotations_ = new WidthCheckAnnotations;
-  float *widths = width_check_annotations_->findKey(pin);
-  if (widths == nullptr) {
-    int width_count = RiseFall::index_count * ap_count_;
-    widths = new float[width_count];
-    // Use negative (illegal) width values to indicate unannotated checks.
-    for (int i = 0; i < width_count; i++)
-      widths[i] = -1;
-    (*width_check_annotations_)[pin] = widths;
-  }
-  int index = ap_index * RiseFall::index_count + rf->index();
-  widths[index] = width;
-}
-
-void
-Graph::removeWidthCheckAnnotations()
-{
-  if (width_check_annotations_) {
-    WidthCheckAnnotations::Iterator check_iter(width_check_annotations_);
-    while (check_iter.hasNext()) {
-      float *widths = check_iter.next();
-      delete [] widths;
-    }
-    delete width_check_annotations_;
-    width_check_annotations_ = nullptr;
-  }
+  edge = nullptr;
+  arc = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////
@@ -1043,7 +1079,6 @@ Graph::removeDelaySlewAnnotations()
     }
     vertex->removeSlewAnnotated();
   }
-  removeWidthCheckAnnotations();
   removePeriodCheckAnnotations();
 }
 
@@ -1248,6 +1283,18 @@ void
 Vertex::setIsDisabledConstraint(bool disabled)
 {
   is_disabled_constraint_ = disabled;
+}
+
+bool
+Vertex::hasFanin() const
+{
+  return in_edges_ != edge_id_null;
+}
+
+bool
+Vertex::hasFanout() const
+{
+  return out_edges_ != edge_id_null;
 }
 
 void

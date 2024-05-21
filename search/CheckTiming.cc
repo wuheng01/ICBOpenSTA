@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #include "Search.hh"
 #include "Genclks.hh"
 #include "PathVertex.hh"
+#include "Sim.hh"
 
 namespace sta {
 
@@ -101,7 +102,8 @@ CheckTiming::checkNoInputDelay()
     if (!sdc_->isClock(pin)) {
       PortDirection *dir = network_->direction(pin);
       if (dir->isAnyInput()
-	  && !sdc_->hasInputDelay(pin))
+	  && !sdc_->hasInputDelay(pin)
+          && !sim_->logicZeroOne(pin))
 	no_arrival.insert(pin);
     }
   }
@@ -128,7 +130,8 @@ CheckTiming::checkNoOutputDelay(PinSet &no_departure)
     const Pin *pin = pin_iter->next();
     PortDirection *dir = network_->direction(pin);
     if (dir->isAnyOutput()
-	&& !sdc_->hasOutputDelay(pin))
+	&& !sdc_->hasOutputDelay(pin)
+        && !sim_->logicZeroOne(pin))
       no_departure.insert(pin);
   }
   delete pin_iter;

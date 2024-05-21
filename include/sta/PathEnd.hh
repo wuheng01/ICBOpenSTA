@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -134,12 +134,15 @@ public:
   const TimingRole *checkGenericRole(const StaState *sta) const;
   virtual bool pathDelayMarginIsExternal() const;
   virtual PathDelay *pathDelay() const;
+  // This returns the crpr signed with respect to the check type.
+  // Positive for setup, negative for hold.
   virtual Crpr commonClkPessimism(const StaState *sta) const;
   virtual MultiCyclePath *multiCyclePath() const;
   virtual TimingArc *checkArc() const { return nullptr; }
   // PathEndDataCheck data clock path.
   virtual const PathVertex *dataClkPath() const { return nullptr; }
   virtual int setupDefaultCycles() const { return 1; }
+  virtual Delay clkSkew(const StaState *sta);
 
   static bool less(const PathEnd *path_end1,
 		   const PathEnd *path_end2,
@@ -160,22 +163,27 @@ public:
   // Helper common to multiple PathEnd classes and used
   // externally.
   // Target clock insertion delay + latency.
-  static Arrival checkTgtClkDelay(const PathVertex *tgt_clk_path,
-				  const ClockEdge *tgt_clk_edge,
-				  const TimingRole *check_role,
-				  const StaState *sta);
+  static Delay checkTgtClkDelay(const PathVertex *tgt_clk_path,
+                                const ClockEdge *tgt_clk_edge,
+                                const TimingRole *check_role,
+                                const StaState *sta);
   static void checkTgtClkDelay(const PathVertex *tgt_clk_path,
 			       const ClockEdge *tgt_clk_edge,
 			       const TimingRole *check_role,
 			       const StaState *sta,
 			       // Return values.
-			       Arrival &insertion,
-			       Arrival &latency);
+			       Delay &insertion,
+			       Delay &latency);
   static float checkClkUncertainty(const ClockEdge *src_clk_edge,
 				   const ClockEdge *tgt_clk_edge,
 				   const PathVertex *tgt_clk_path,
 				   const TimingRole *check_role,
 				   const StaState *sta);
+  // Non inter-clock uncertainty.
+  static float checkTgtClkUncertainty(const PathVertex *tgt_clk_path,
+                                      const ClockEdge *tgt_clk_edge,
+                                      const TimingRole *check_role,
+                                      const StaState *sta);
   static float checkSetupMcpAdjustment(const ClockEdge *src_clk_edge,
 				       const ClockEdge *tgt_clk_edge,
 				       const MultiCyclePath *mcp,
@@ -184,14 +192,6 @@ public:
 
 protected:
   PathEnd(Path *path);
-  void clkPath(PathVertex *path,
-	       const StaState *sta,
-	       // Return value.
-	       PathVertex &clk_path);
-  static float checkNonInterClkUncertainty(const PathVertex *tgt_clk_path,
-					   const ClockEdge *tgt_clk_edge,
-					   const TimingRole *check_role,
-					   const StaState *sta);
   static void checkInterClkUncertainty(const ClockEdge *src_clk_edge,
 				       const ClockEdge *tgt_clk_edge,
 				       const TimingRole *check_role,
@@ -323,6 +323,7 @@ public:
   virtual TimingArc *checkArc() const { return check_arc_; }
   virtual int exceptPathCmp(const PathEnd *path_end,
 			    const StaState *sta) const;
+  virtual Delay clkSkew(const StaState *sta);
 
 protected:
   PathEndCheck(Path *path,
@@ -332,6 +333,7 @@ protected:
 	       MultiCyclePath *mcp,
 	       Crpr crpr,
 	       bool crpr_valid);
+  Delay sourceClkDelay(const StaState *sta) const;
 
   TimingArc *check_arc_;
   Edge *check_edge_;
@@ -511,6 +513,10 @@ protected:
 		   MultiCyclePath *mcp,
 		   Crpr crpr,
 		   bool crpr_valid);
+  void clkPath(PathVertex *path,
+	       const StaState *sta,
+	       // Return value.
+	       PathVertex &clk_path);
   Arrival requiredTimeNoCrpr(const StaState *sta) const;
   // setup uses zero cycle default
   virtual int setupDefaultCycles() const { return 0; }

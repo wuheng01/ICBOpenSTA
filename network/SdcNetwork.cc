@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -120,6 +120,13 @@ ObjectId
 NetworkNameAdapter::id(const Cell *cell) const
 {
   return network_->id(cell);
+}
+
+string
+NetworkNameAdapter::getAttribute(const Cell *cell,
+                                 const string &key) const
+{
+  return network_->getAttribute(cell, key);
 }
 
 Library *
@@ -325,6 +332,13 @@ Cell *
 NetworkNameAdapter::cell(const Instance *instance) const
 {
   return network_->cell(instance);
+}
+
+string
+NetworkNameAdapter::getAttribute(const Instance *inst,
+                                 const string &key) const
+{
+  return network_->getAttribute(inst, key);
 }
 
 Instance *
@@ -1092,7 +1106,7 @@ SdcNetwork::parsePath(const char *path,
     else
       *p++ = ch;
     if (p - inst_path + 1 > inst_path_length)
-      report_->critical(211, "inst path string lenth estimate busted");
+      report_->critical(1500, "inst path string lenth estimate busted");
   }
   *p = '\0';
   stringDelete(inst_path);
@@ -1164,7 +1178,7 @@ SdcNetwork::visitMatches(const Instance *parent,
       *p++ = ch;
     }
     if (p - inst_path + 1 > inst_path_length)
-      report_->critical(212, "inst path string lenth estimate exceeded");
+      report_->critical(1501, "inst path string lenth estimate exceeded");
   }
   *p = '\0';
   if (!found_match) {

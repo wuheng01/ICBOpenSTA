@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -50,6 +50,8 @@
 #include "Graph.hh"
 
 namespace sta {
+
+using std::swap;
 
 bool
 ClockPairLess::operator()(const ClockPair &pair1,
@@ -465,7 +467,7 @@ Sdc::setOperatingConditions(OperatingConditions *op_cond,
 }
 
 OperatingConditions *
-Sdc::operatingConditions(const MinMax *min_max)
+Sdc::operatingConditions(const MinMax *min_max) const
 {
   int mm_index = min_max->index();
   return operating_conditions_[mm_index];
@@ -660,25 +662,13 @@ Sdc::unsetTimingDerate()
 }
 
 void
-Sdc::moveDeratingFactors(Sdc *from,
-                         Sdc *to)
+Sdc::swapDeratingFactors(Sdc *sdc1,
+                         Sdc *sdc2)
 {
-  if (from->derating_factors_) {
-    to->derating_factors_ = from->derating_factors_;
-    from->derating_factors_ = nullptr;
-  }
-
-  to->net_derating_factors_.deleteContents();
-  to->net_derating_factors_ = from->net_derating_factors_;
-  from->net_derating_factors_.clear();
-
-  to->inst_derating_factors_.deleteContents();
-  to->inst_derating_factors_ = from->inst_derating_factors_;
-  from->inst_derating_factors_.clear();
-
-  to->cell_derating_factors_.deleteContents();
-  to->cell_derating_factors_ = from->cell_derating_factors_;
-  from->cell_derating_factors_.clear();
+  swap(sdc1->derating_factors_, sdc2->derating_factors_);
+  swap(sdc1->net_derating_factors_, sdc2->net_derating_factors_);
+  swap(sdc1->inst_derating_factors_, sdc2->inst_derating_factors_);
+  swap(sdc1->cell_derating_factors_, sdc2->cell_derating_factors_);
 }
 
 void
@@ -1741,6 +1731,13 @@ Sdc::removeClockInsertion(const Clock *clk,
 }
 
 void
+Sdc::swapClockInsertions(Sdc *sdc1,
+                         Sdc *sdc2)
+{
+  swap(sdc1->clk_insertions_, sdc2->clk_insertions_);
+}
+
+void
 Sdc::deleteClockInsertion(ClockInsertion *insertion)
 {
   clk_insertions_.erase(insertion);
@@ -2743,49 +2740,20 @@ Sdc::deleteInputDelay(InputDelay *input_delay)
 }
 
 void
-Sdc::movePortDelays(Sdc *from,
-                    Sdc *to)
+Sdc::swapPortDelays(Sdc *sdc1,
+                    Sdc *sdc2)
 {
-  to->input_delays_.deleteContents();
-  to->input_delays_ = from->input_delays_;
-  from->input_delays_.clear();
+  swap(sdc1->input_delays_, sdc2->input_delays_);
+  swap(sdc1->input_delay_pin_map_, sdc2->input_delay_pin_map_);
+  swap(sdc1->input_delay_ref_pin_map_, sdc2->input_delay_ref_pin_map_);
+  swap(sdc1->input_delay_leaf_pin_map_, sdc2->input_delay_leaf_pin_map_);
+  swap(sdc1->input_delay_internal_pin_map_, sdc2->input_delay_internal_pin_map_);
+  swap(sdc1->input_delay_index_, sdc2->input_delay_index_);
 
-  to->input_delay_pin_map_.deleteContents();
-  to->input_delay_pin_map_ = from->input_delay_pin_map_;
-  from->input_delay_pin_map_.clear();
-
-  to->input_delay_ref_pin_map_.deleteContents();
-  to->input_delay_ref_pin_map_ = from->input_delay_ref_pin_map_;
-  from->input_delay_ref_pin_map_.clear();
-
-  to->input_delay_leaf_pin_map_.deleteContents();
-  to->input_delay_leaf_pin_map_ = from->input_delay_leaf_pin_map_;
-  from->input_delay_leaf_pin_map_.clear();
-
-  to->input_delay_internal_pin_map_.deleteContents();
-  to->input_delay_internal_pin_map_ = from->input_delay_internal_pin_map_;
-  from->input_delay_internal_pin_map_.clear();
-
-  to->input_delay_index_ = from->input_delay_index_;
-  from->input_delay_index_ = 0;
-
-  ////////////////
-
-  to->output_delays_.deleteContents();
-  to->output_delays_ = from->output_delays_;
-  from->output_delays_.clear();
-
-  to->output_delay_pin_map_.deleteContents();
-  to->output_delay_pin_map_ = from->output_delay_pin_map_;
-  from->output_delay_pin_map_.clear();
-
-  to->output_delay_ref_pin_map_.deleteContents();
-  to->output_delay_ref_pin_map_ = from->output_delay_ref_pin_map_;
-  from->output_delay_ref_pin_map_.clear();
-
-  to->output_delay_leaf_pin_map_.deleteContents();
-  to->output_delay_leaf_pin_map_ = from->output_delay_leaf_pin_map_;
-  from->output_delay_leaf_pin_map_.clear();
+  swap(sdc1->output_delays_, sdc2->output_delays_);
+  swap(sdc1->output_delay_pin_map_, sdc2->output_delay_pin_map_);
+  swap(sdc1->output_delay_ref_pin_map_, sdc2->output_delay_ref_pin_map_);
+  swap(sdc1->output_delay_leaf_pin_map_, sdc2->output_delay_leaf_pin_map_);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -2960,8 +2928,7 @@ Sdc::setPortExtWireCap(const Port *port,
   PortExtCap *port_cap = ensurePortExtPinCap(port, corner);
   if (subtract_pin_cap) {
     Pin *pin = network_->findPin(network_->name(port));
-    const OperatingConditions *op_cond = operatingConditions(min_max);
-    cap -= connectedPinCap(pin, rf, op_cond, corner, min_max);
+    cap -= connectedPinCap(pin, rf, corner, min_max);
     if (cap < 0.0)
       cap = 0.0;
   }
@@ -3068,14 +3035,11 @@ Sdc::setNetWireCap(const Net *net,
 {
   float wire_cap = cap;
   if (subtract_pin_cap) {
-    OperatingConditions *op_cond = operatingConditions(min_max);
     NetConnectedPinIterator *pin_iter = network_->connectedPinIterator(net);
     if (pin_iter->hasNext()) {
       const Pin *pin = pin_iter->next();
-      float pin_cap_rise = connectedPinCap(pin, RiseFall::rise(),
-					   op_cond, corner, min_max);
-      float pin_cap_fall = connectedPinCap(pin, RiseFall::fall(),
-					   op_cond, corner, min_max);
+      float pin_cap_rise = connectedPinCap(pin, RiseFall::rise(), corner, min_max);
+      float pin_cap_fall = connectedPinCap(pin, RiseFall::fall(), corner, min_max);
       float pin_cap = (pin_cap_rise + pin_cap_fall) / 2.0F;
       wire_cap -= pin_cap;
       if ((wire_cap + pin_cap) < 0.0)
@@ -3083,16 +3047,11 @@ Sdc::setNetWireCap(const Net *net,
       delete pin_iter;
     }
   }
-  bool make_drvr_entry = !net_wire_cap_maps_[corner->index()].hasKey(net);
   MinMaxFloatValues &values = net_wire_cap_maps_[corner->index()][net];
   values.setValue(min_max, wire_cap);
 
-  // Only need to do this when there is new net_wire_cap_maps_ entry.
-  if (make_drvr_entry) {
-    for (const Pin *pin : *network_->drivers(net)) {
-      drvr_pin_wire_cap_maps_[corner->index()][pin] = &values;
-    }
-  }
+  for (const Pin *pin : *network_->drivers(net))
+    drvr_pin_wire_cap_maps_[corner->index()][pin] = &values;
 }
 
 bool
@@ -3110,7 +3069,6 @@ Sdc::hasNetWireCap(const Net *net) const
 void
 Sdc::connectedCap(const Pin *pin,
 		  const RiseFall *rf,
-		  const OperatingConditions *op_cond,
 		  const Corner *corner,
 		  const MinMax *min_max,
 		  // Return values.
@@ -3119,8 +3077,7 @@ Sdc::connectedCap(const Pin *pin,
 		  float &fanout,
                   bool &has_net_load) const
 {
-  netCaps(pin, rf, op_cond, corner, min_max,
-	  pin_cap, wire_cap, fanout, has_net_load);
+  netCaps(pin, rf, corner, min_max, pin_cap, wire_cap, fanout, has_net_load);
   float net_wire_cap;
   drvrPinWireCap(pin, corner, min_max, net_wire_cap, has_net_load);
   if (has_net_load)
@@ -3130,13 +3087,12 @@ Sdc::connectedCap(const Pin *pin,
 float
 Sdc::connectedPinCap(const Pin *pin,
 		     const RiseFall *rf,
-		     const OperatingConditions *op_cond,
 		     const Corner *corner,
 		     const MinMax *min_max)
 {
   float pin_cap, wire_cap, fanout;
   bool has_net_load;
-  connectedCap(pin, rf, op_cond, corner, min_max,
+  connectedCap(pin, rf, corner, min_max,
 	       pin_cap, wire_cap, fanout, has_net_load);
   return pin_cap;
 }
@@ -3145,7 +3101,6 @@ class FindNetCaps : public PinVisitor
 {
 public:
   FindNetCaps(const RiseFall *rf,
-	      const OperatingConditions *op_cond,
 	      const Corner *corner,
 	      const MinMax *min_max,
 	      float &pin_cap,
@@ -3157,7 +3112,6 @@ public:
 
 protected:
   const RiseFall *rf_;
-  const OperatingConditions *op_cond_;
   const Corner *corner_;
   const MinMax *min_max_;
   float &pin_cap_;
@@ -3168,7 +3122,6 @@ protected:
 };
 
 FindNetCaps::FindNetCaps(const RiseFall *rf,
-			 const OperatingConditions *op_cond,
 			 const Corner *corner,
 			 const MinMax *min_max,
 			 float &pin_cap,
@@ -3178,7 +3131,6 @@ FindNetCaps::FindNetCaps(const RiseFall *rf,
 			 const Sdc *sdc) :
   PinVisitor(),
   rf_(rf),
-  op_cond_(op_cond),
   corner_(corner),
   min_max_(min_max),
   pin_cap_(pin_cap),
@@ -3192,7 +3144,7 @@ FindNetCaps::FindNetCaps(const RiseFall *rf,
 void
 FindNetCaps::operator()(const Pin *pin)
 {
-  sdc_->pinCaps(pin, rf_, op_cond_, corner_, min_max_,
+  sdc_->pinCaps(pin, rf_, corner_, min_max_,
 		pin_cap_, wire_cap_, fanout_);
 }
 
@@ -3200,7 +3152,6 @@ FindNetCaps::operator()(const Pin *pin)
 void
 Sdc::netCaps(const Pin *drvr_pin,
 	     const RiseFall *rf,
-	     const OperatingConditions *op_cond,
 	     const Corner *corner,
 	     const MinMax *min_max,
 	     // Return values.
@@ -3213,7 +3164,7 @@ Sdc::netCaps(const Pin *drvr_pin,
   wire_cap = 0.0;
   fanout = 0.0;
   has_net_load = false;
-  FindNetCaps visitor(rf, op_cond, corner, min_max, pin_cap,
+  FindNetCaps visitor(rf, corner, min_max, pin_cap,
 		      wire_cap, fanout, has_net_load, this);
   network_->visitConnectedPins(drvr_pin, visitor);
 }
@@ -3221,7 +3172,6 @@ Sdc::netCaps(const Pin *drvr_pin,
 void
 Sdc::pinCaps(const Pin *pin,
 	     const RiseFall *rf,
-	     const OperatingConditions *op_cond,
 	     const Corner *corner,
 	     const MinMax *min_max,
 	     // Return values.
@@ -3254,7 +3204,7 @@ Sdc::pinCaps(const Pin *pin,
     LibertyPort *port = network_->libertyPort(pin);
     if (port) {
       Instance *inst = network_->instance(pin);
-      pin_cap += portCapacitance(inst, port, rf, op_cond, corner, min_max);
+      pin_cap += portCapacitance(inst, port, rf, corner, min_max);
       if (port->direction()->isAnyInput())
 	fanout++;
     }
@@ -3265,7 +3215,6 @@ float
 Sdc::portCapacitance(Instance *inst,
 		     LibertyPort *port,
 		     const RiseFall *rf,
-		     const OperatingConditions *op_cond,
 		     const Corner *corner,
 		     const MinMax *min_max) const
 {
@@ -3273,20 +3222,20 @@ Sdc::portCapacitance(Instance *inst,
   if (inst)
     inst_pvt = pvt(inst, min_max);
   LibertyPort *corner_port = port->cornerPort(corner, min_max);
+  OperatingConditions *op_cond = operatingConditions(min_max);
   return corner_port->capacitance(rf, min_max, op_cond, inst_pvt);
 }
 
 float
 Sdc::pinCapacitance(const Pin *pin,
 		    const RiseFall *rf,
-		    const OperatingConditions *op_cond,
 		    const Corner *corner,
 		    const MinMax *min_max)
 {
   LibertyPort *port = network_->libertyPort(pin);
   if (port) {
     Instance *inst = network_->instance(pin);
-    return portCapacitance(inst, port, rf, op_cond, corner, min_max);
+    return portCapacitance(inst, port, rf, corner, min_max);
   }
   else
     return 0.0;
@@ -3370,15 +3319,12 @@ Sdc::ensurePortExtPinCap(const Port *port,
 }
 
 void
-Sdc::movePortExtCaps(Sdc *from,
-                     Sdc *to)
+Sdc::swapPortExtCaps(Sdc *sdc1,
+                     Sdc *sdc2)
 {
-  for (int corner_index = 0; corner_index < from->corners()->count(); corner_index++) {
-    to->port_ext_cap_maps_[corner_index] = from->port_ext_cap_maps_[corner_index];
-    from->port_ext_cap_maps_[corner_index].clear();
-
-    to->net_wire_cap_maps_[corner_index] = from->net_wire_cap_maps_[corner_index];
-    from->net_wire_cap_maps_[corner_index].clear();
+  for (int corner_index = 0; corner_index < sdc1->corners()->count(); corner_index++) {
+    swap(sdc1->port_ext_cap_maps_[corner_index], sdc2->port_ext_cap_maps_[corner_index]);
+    swap(sdc1->net_wire_cap_maps_[corner_index], sdc2->net_wire_cap_maps_[corner_index]);
   }
 }
 
@@ -3972,7 +3918,7 @@ Sdc::recordPathDelayInternalEndpoints(ExceptionPath *exception)
   if (to
       && to->hasPins()) {
     for (const Pin *pin : *to->pins()) {
-      if (!(hasLibertyChecks(pin)
+      if (!(hasLibertyCheckTo(pin)
 	    || network_->isTopLevelPort(pin))) {
 	path_delay_internal_endpoints_.insert(pin);
       }
@@ -3988,7 +3934,7 @@ Sdc::unrecordPathDelayInternalEndpoints(ExceptionPath *exception)
       && to->hasPins()
       && !path_delay_internal_endpoints_.empty()) {
     for (const Pin *pin : *to->pins()) {
-      if (!(hasLibertyChecks(pin)
+      if (!(hasLibertyCheckTo(pin)
 	    || network_->isTopLevelPort(pin))
 	  && !pathDelayTo(pin))
 	path_delay_internal_endpoints_.erase(pin);
@@ -3997,7 +3943,7 @@ Sdc::unrecordPathDelayInternalEndpoints(ExceptionPath *exception)
 }
 
 bool
-Sdc::hasLibertyChecks(const Pin *pin)
+Sdc::hasLibertyCheckTo(const Pin *pin)
 {
   const Instance *inst = network_->instance(pin);
   LibertyCell *cell = network_->libertyCell(inst);
@@ -4005,7 +3951,7 @@ Sdc::hasLibertyChecks(const Pin *pin)
     LibertyPort *port = network_->libertyPort(pin);
     if (port) {
       for (TimingArcSet *arc_set : cell->timingArcSets(nullptr, port)) {
-	if (arc_set->role()->isTimingCheck())
+	if (arc_set->role()->isTimingCheckBetween())
 	  return true;
       }
     }
@@ -4057,7 +4003,7 @@ Sdc::makeGroupPath(const char *name,
 {
   checkFromThrusTo(from, thrus, to);
   if (name && is_default)
-    report_->critical(213, "group path name and is_default are mutually exclusive.");
+    report_->critical(1490, "group path name and is_default are mutually exclusive.");
   else if (name) {
     GroupPath *group_path = new GroupPath(name, is_default, from, thrus, to,
 					  true, comment);

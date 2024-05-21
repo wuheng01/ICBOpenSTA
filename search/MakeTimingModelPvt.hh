@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -57,12 +57,17 @@ public:
 private:
   void makeLibrary();
   void makeCell();
+  float findArea();
   void makePorts();
   void checkClock(Clock *clk);
   void findTimingFromInputs();
   void findTimingFromInput(Port *input_port);
   void findClkedOutputPaths();
   void findClkInsertionDelays();
+  void makeClkTreePaths(LibertyPort *lib_port,
+                        const MinMax *min_max,
+                        TimingSense sense,
+                        const ClkDelays &delays);
   void findOutputDelays(const RiseFall *input_rf,
                         OutputPinDelays &output_pin_delays);
   void makeSetupHoldTimingArcs(const Pin *input_pin,
@@ -87,6 +92,7 @@ private:
 
   void saveSdc();
   void restoreSdc();
+  void swapSdcWithBackup();
 
   const char *lib_name_;
   const char *cell_name_;

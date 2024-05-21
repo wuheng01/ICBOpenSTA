@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -530,11 +530,13 @@ FindRegClkPins::FindRegClkPins(StaState *sta) :
 bool
 FindRegClkPins::matchPin(Pin *pin)
 {
+  // Liberty port clock attribute is not present in latches (for nlc18 anyway).
   LibertyPort *port = network_->libertyPort(pin);
   LibertyCell *cell = port->libertyCell();
   for (TimingArcSet *arc_set : cell->timingArcSets(port, nullptr)) {
     TimingRole *role = arc_set->role();
-    if (role->isTimingCheck())
+    if (role == TimingRole::regClkToQ()
+        || role == TimingRole::latchEnToQ())
       return true;
   }
   return false;
