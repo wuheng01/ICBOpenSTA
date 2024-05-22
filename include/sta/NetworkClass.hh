@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -50,6 +50,7 @@ typedef Iterator<Port*> PortMemberIterator;
 typedef Vector<const Pin*> PinSeq;
 typedef Vector<const Instance*> InstanceSeq;
 typedef Vector<const Net*> NetSeq;
+typedef std::vector<const Net*> ConstNetSeq;
 typedef Iterator<Instance*> InstanceChildIterator;
 typedef Iterator<Pin*> InstancePinIterator;
 typedef Iterator<Net*> InstanceNetIterator;

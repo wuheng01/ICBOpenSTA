@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -104,7 +104,7 @@ ReadVcdActivities::readActivities()
   if (vcd_.timeMax() > 0)
     setActivities();
   else
-    report_->warn(808, "VCD max time is zero.");
+    report_->warn(1450, "VCD max time is zero.");
   report_->reportLine("Annotated %lu pin activities.", annotated_pins_.size());
 }
 
@@ -171,7 +171,7 @@ ReadVcdActivities::setVarActivity(VcdVar *var,
       }
     }
     else
-      report_->warn(809, "problem parsing bus %s.", var_name.c_str());
+      report_->warn(1451, "problem parsing bus %s.", var_name.c_str());
   }
 }
 
@@ -231,8 +231,7 @@ ReadVcdActivities::findVarActivity(const VcdValues &var_values,
   if (prev_value == '1')
     high_time += time_max - prev_time;
   duty = static_cast<double>(high_time) / time_max;
-  activity = transition_count
-    / (time_max * vcd_.timeUnitScale() / clk_period_);
+  activity = transition_count / (time_max * vcd_.timeScale() / clk_period_);
 }
 
 void
@@ -240,7 +239,7 @@ ReadVcdActivities::checkClkPeriod(const Pin *pin,
                                   double transition_count)
 {
   VcdTime time_max = vcd_.timeMax();
-  double sim_period = time_max * vcd_.timeUnitScale() / (transition_count / 2.0);
+  double sim_period = time_max * vcd_.timeScale() / (transition_count / 2.0);
 
   ClockSet *clks = sdc_->findLeafPinClocks(pin);
   if (clks) {
@@ -248,7 +247,7 @@ ReadVcdActivities::checkClkPeriod(const Pin *pin,
       double clk_period = clk->period();
       if (abs((clk_period - sim_period) / clk_period) > .1)
         // Warn if sim clock period differs from SDC by 10%.
-        report_->warn(806, "clock %s vcd period %s differs from SDC clock period %s",
+        report_->warn(1452, "clock %s vcd period %s differs from SDC clock period %s",
                       clk->name(),
                       delayAsString(sim_period, this),
                       delayAsString(clk_period, this));

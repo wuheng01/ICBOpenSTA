@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -226,9 +226,9 @@ VerilogWriter::verilogPortDir(PortDirection *dir)
   else if (dir == PortDirection::bidirect())
     return "inout";
   else if (dir == PortDirection::power())
-    return "input";
+    return "inout";
   else if (dir == PortDirection::ground())
-    return "input";
+    return "inout";
   else if (dir == PortDirection::internal())
     return nullptr;
   else {
@@ -427,7 +427,8 @@ VerilogWriter::writeAssigns(Instance *inst)
     Net *net = network_->net(term);
     Port *port = network_->port(pin);
     if (port
-        && network_->direction(port)->isAnyOutput()
+        && (network_->direction(port)->isAnyOutput()
+            || network_->direction(port)->isPowerGround())
         && !stringEqual(network_->name(port), network_->name(net))) {
       // Port name is different from net name.
       string port_vname = netVerilogName(network_->name(port),

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -242,7 +242,7 @@ public:
   virtual void visitMinPulseWidthLow(LibertyAttr *attr);
   virtual void visitMinPulseWidthHigh(LibertyAttr *attr);
   virtual void visitMinPulseWidth(LibertyAttr *attr,
-				  RiseFall *rf);
+				  const RiseFall *rf);
   virtual void visitPulseClock(LibertyAttr *attr);
   virtual void visitClockGateClockPin(LibertyAttr *attr);
   virtual void visitClockGateEnablePin(LibertyAttr *attr);
@@ -486,6 +486,11 @@ public:
   virtual void visitAttr9(LibertyAttr *) {}
 
 protected:
+  TimingModel *makeScalarCheckModel(float value,
+                                    ScaleFactorType scale_factor_type,
+                                    const RiseFall *rf);
+  void makeMinPulseWidthArcs(LibertyPort *port,
+                             int line);
   void setEnergyScale();
   void defineVisitors();
   virtual void begin(LibertyGroup *group);

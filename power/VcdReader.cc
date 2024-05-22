@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -135,12 +135,14 @@ VcdReader::parseTimescale()
   vector<string> tokens = readStmtTokens();
   if (tokens.size() == 1) {
     size_t last;
-    vcd_->setTimeScale(std::stod(tokens[0], &last));
+    double time_scale = std::stod(tokens[0], &last);
     setTimeUnit(tokens[0].substr(last));
+    vcd_->setTimeScale(time_scale * vcd_->timeUnitScale());
   }
   else if (tokens.size() == 2) {
-    vcd_->setTimeScale(std::stod(tokens[0]));
     setTimeUnit(tokens[1]);
+    double time_scale = std::stod(tokens[0]);
+    vcd_->setTimeScale(time_scale * vcd_->timeUnitScale());
   }
   else
     report_->fileError(801, filename_, stmt_line_, "timescale syntax error.");
@@ -189,7 +191,7 @@ VcdReader::parseVar()
     string type_name = tokens[0];
     VcdVarType type = vcd_var_type_map.find(type_name, VcdVarType::unknown);
     if (type == VcdVarType::unknown)
-      report_->fileWarn(803, filename_, stmt_line_,
+      report_->fileWarn(1370, filename_, stmt_line_,
                         "Unknown variable type %s.",
                         type_name.c_str());
     else {

@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -557,6 +557,15 @@ ConcreteNetwork::setIsLeaf(Cell *cell,
   ccell->setIsLeaf(is_leaf);
 }
 
+void
+ConcreteNetwork::setAttribute(Cell *cell,
+                              const string &key,
+                              const string &value)
+{
+  ConcreteCell *ccell = reinterpret_cast<ConcreteCell*>(cell);
+  ccell->setAttribute(key, value);
+}
+
 Library *
 ConcreteNetwork::library(const Cell *cell) const
 {
@@ -595,6 +604,14 @@ ConcreteNetwork::filename(const Cell *cell)
 {
   const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
   return ccell->filename();
+}
+
+string
+ConcreteNetwork::getAttribute(const Cell *cell,
+                              const string &key) const
+{
+  const ConcreteCell *ccell = reinterpret_cast<const ConcreteCell*>(cell);
+  return ccell->getAttribute(key);
 }
 
 Port *
@@ -919,6 +936,14 @@ ConcreteNetwork::id(const Instance *instance) const
   const ConcreteInstance *inst =
     reinterpret_cast<const ConcreteInstance*>(instance);
   return inst->id();
+}
+
+string
+ConcreteNetwork::getAttribute(const Instance *inst,
+                              const string &key) const
+{
+  const ConcreteInstance *cinst = reinterpret_cast<const ConcreteInstance*>(inst);
+  return cinst->getAttribute(key);
 }
 
 Cell *
@@ -1325,6 +1350,15 @@ ConcreteNetwork::connect(Instance *inst,
   return connect(inst, reinterpret_cast<Port*>(port), net);
 }
 
+void
+ConcreteNetwork::setAttribute(Instance *inst,
+                              const string &key,
+                              const string &value)
+{
+  ConcreteInstance *cinst = reinterpret_cast<ConcreteInstance*>(inst);
+  cinst->setAttribute(key, value);
+}
+
 Pin *
 ConcreteNetwork::connect(Instance *inst,
 			 Port *port,
@@ -1649,6 +1683,22 @@ ConcreteInstance::childIterator() const
 }
 
 void
+ConcreteInstance::setAttribute(const string &key,
+                               const string &value)
+{
+  attribute_map_.insert(key, value);
+}
+
+string
+ConcreteInstance::getAttribute(const string &key) const
+{
+  if (attribute_map_.hasKey(key)) {
+    return attribute_map_.findKey(key);
+  }
+  return "";
+}
+
+void
 ConcreteInstance::addChild(ConcreteInstance *child)
 {
   if (children_ == nullptr)
@@ -1920,7 +1970,7 @@ ConcreteNetwork::linkNetwork(const char *top_cell_name,
     return top_instance_ != nullptr;
   }
   else {
-    report->error(8, "cell type %s can not be linked.", top_cell_name);
+    report->error(1000, "cell type %s can not be linked.", top_cell_name);
     return false;
   }
 }
