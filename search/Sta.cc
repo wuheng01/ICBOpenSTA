@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@
 #include "CheckMinPeriods.hh"
 #include "CheckMaxSkews.hh"
 #include "ClkSkew.hh"
+#include "ClkLatency.hh"
 #include "FindRegister.hh"
 #include "ReportPath.hh"
 #include "VisitPathGroupVertices.hh"
@@ -273,9 +274,8 @@ Sta::Sta() :
   update_genclks_(false),
   equiv_cells_(nullptr),
   graph_sdc_annotated_(false),
-  // Default to same parasitics for each corner min/max.
-  parasitics_per_corner_(false),
-  parasitics_per_min_max_(false)
+  // Default to same parasitics for all corners.
+  parasitics_per_corner_(false)
 {
 }
 
@@ -2034,10 +2034,10 @@ Sta::checkExceptionFromPins(ExceptionFrom *from,
       const Pin *pin = pin_iter.next();
       if (exceptionFromInvalid(pin)) {
 	if (line)
-	  report_->fileWarn(267, file, line, "'%s' is not a valid start point.",
+	  report_->fileWarn(1554, file, line, "'%s' is not a valid start point.",
 			    cmd_network_->pathName(pin));
 	else
-	  report_->warn(18, "'%s' is not a valid start point.",
+	  report_->warn(1550, "'%s' is not a valid start point.",
 			cmd_network_->pathName(pin));
       }
     }
@@ -2110,10 +2110,10 @@ Sta::checkExceptionToPins(ExceptionTo *to,
       const Pin *pin = pin_iter.next();
       if (sdc_->exceptionToInvalid(pin)) {
 	if (line)
-	  report_->fileWarn(266, file, line, "'%s' is not a valid endpoint.",
+	  report_->fileWarn(1551, file, line, "'%s' is not a valid endpoint.",
 			    cmd_network_->pathName(pin));
 	else
-	  report_->warn(17, "'%s' is not a valid endpoint.",
+	  report_->warn(1552, "'%s' is not a valid endpoint.",
 			cmd_network_->pathName(pin));
       }
     }
@@ -2436,7 +2436,7 @@ void
 Sta::makeCorners(StringSet *corner_names)
 {
   if (corner_names->size() > corner_count_max)
-    report_->error(374, "maximum corner count exceeded");
+    report_->error(1553, "maximum corner count exceeded");
   sdc_->makeCornersBefore();
   parasitics_->deleteParasitics();
   corners_->makeCorners(corner_names);
@@ -2609,29 +2609,24 @@ Sta::updateTiming(bool full)
 ////////////////////////////////////////////////////////////////
 
 void
-Sta::reportClkSkew(ClockSet *clks,
+Sta::reportClkSkew(ConstClockSeq clks,
 		   const Corner *corner,
 		   const SetupHold *setup_hold,
+                   bool include_internal_latency,
 		   int digits)
 {
   clkSkewPreamble();
-  clk_skews_->reportClkSkew(clks, corner, setup_hold, digits);
+  clk_skews_->reportClkSkew(clks, corner, setup_hold,
+                            include_internal_latency, digits);
 }
 
 float
-Sta::findWorstClkSkew(const SetupHold *setup_hold)
+Sta::findWorstClkSkew(const SetupHold *setup_hold,
+                      bool include_internal_latency)
 {
   clkSkewPreamble();
-  return clk_skews_->findWorstClkSkew(cmd_corner_, setup_hold);
-}
-
-void
-Sta::findClkDelays(const Clock *clk,
-                   // Return values.
-                   ClkDelays &delays)
-{
-  clkSkewPreamble();
-  clk_skews_->findClkDelays(clk, delays);
+  return clk_skews_->findWorstClkSkew(cmd_corner_, setup_hold,
+                                      include_internal_latency);
 }
 
 void
@@ -2640,6 +2635,28 @@ Sta::clkSkewPreamble()
   ensureClkArrivals();
   if (clk_skews_ == nullptr)
     clk_skews_ = new ClkSkews(this);
+}
+
+////////////////////////////////////////////////////////////////
+
+void
+Sta::reportClkLatency(ConstClockSeq clks,
+                      const Corner *corner,
+                      bool include_internal_latency,
+                      int digits)
+{
+  ensureClkArrivals();
+  ClkLatency clk_latency(this);
+  clk_latency.reportClkLatency(clks, corner, include_internal_latency, digits);
+}
+
+ClkDelays
+Sta::findClkDelays(const Clock *clk,
+                   bool include_internal_latency)
+{
+  ensureClkArrivals();
+  ClkLatency clk_latency(this);
+  return clk_latency.findClkDelays(clk, nullptr, include_internal_latency);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -2666,18 +2683,14 @@ Sta::ensureClkArrivals()
 
 ////////////////////////////////////////////////////////////////
 
-void
-Sta::visitStartpoints(VertexVisitor *visitor)
+PinSet
+Sta::startpointPins()
 {
   ensureGraph();
-  search_->visitStartpoints(visitor);
-}
-
-void
-Sta::visitEndpoints(VertexVisitor *visitor)
-{
-  ensureGraph();
-  search_->visitEndpoints(visitor);
+  PinSet pins(network_);
+  VertexPinCollector visitor(pins);
+  search_->visitStartpoints(&visitor);
+  return pins;
 }
 
 VertexSet *
@@ -2685,6 +2698,16 @@ Sta::endpoints()
 {
   ensureGraph();
   return search_->endpoints();
+}
+
+PinSet
+Sta::endpointPins()
+{
+  ensureGraph();
+  PinSet pins(network_);
+  for (Vertex *vertex : *search_->endpoints())
+    pins.insert(vertex->pin());
+  return pins;
 }
 
 int
@@ -2975,7 +2998,7 @@ Sta::netSlack(const Net *net,
 {
   ensureGraph();
   Slack slack = MinMax::min()->initValue();
-  NetPinIterator *pin_iter = network_->pinIterator(net);
+  NetConnectedPinIterator *pin_iter = network_->connectedPinIterator(net);
   while (pin_iter->hasNext()) {
     const Pin *pin = pin_iter->next();
     if (network_->isLoad(pin)) {
@@ -3347,7 +3370,7 @@ Sta::setCorners(const Sta* sta) {
   parasitics_->deleteParasitics();
   corners_->copy(corners);
   cmd_corner_ = corners_->findCorner(sta->cmd_corner_->index());
-  setParasiticAnalysisPts(sta->parasitics_per_corner_, sta->parasitics_per_min_max_);
+  setParasiticAnalysisPts(sta->parasitics_per_corner_/*, sta->parasitics_per_min_max_*/);
   sdc_->makeCornersAfter(corners_);
 }
 
@@ -3733,7 +3756,7 @@ Sta::portExtCaps(const Port *port,
   bool fanout_exists = false;
   pin_cap = min_max->initValue();
   wire_cap = min_max->initValue();
-  fanout = min_max->initValue();
+  fanout = min_max->initValueInt();
   for (RiseFall *rf : RiseFall::range()) {
     float pin_cap1, wire_cap1;
     int fanout1;
@@ -3835,10 +3858,7 @@ Sta::connectedCap(const Pin *drvr_pin,
 		  float &wire_cap) const
 {
   const DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
-  Parasitic *parasitic = arc_delay_calc_->findParasitic(drvr_pin, rf, dcalc_ap);
-  graph_delay_calc_->loadCap(drvr_pin, parasitic, rf, dcalc_ap,
-			     pin_cap, wire_cap);
-  arc_delay_calc_->finishDrvrPin();
+  graph_delay_calc_->loadCap(drvr_pin, rf, dcalc_ap, pin_cap, wire_cap);
 }
 
 void
@@ -3931,42 +3951,29 @@ Sta::readSpef(const char *filename,
 	      bool pin_cap_included,
 	      bool keep_coupling_caps,
 	      float coupling_cap_factor,
-	      ReducedParasiticType reduce_to,
-	      bool delete_after_reduce,
-	      bool quiet,
-        bool disable_reduce_parsitic_network_circle)
+	      bool reduce)
 {
-  setParasiticAnalysisPts(corner != nullptr,
-                          min_max != MinMaxAll::all());
-  if (corner == nullptr)
-    corner = cmd_corner_;
-  const MinMax *cnst_min_max = (min_max == MinMaxAll::all())
+  setParasiticAnalysisPts(corner != nullptr);
+  const MinMax *ap_min_max = (min_max == MinMaxAll::all())
     ? MinMax::max()
     : min_max->asMinMax();
-  ParasiticAnalysisPt *ap = corner->findParasiticAnalysisPt(cnst_min_max);
-  const OperatingConditions *op_cond =
-    sdc_->operatingConditions(cnst_min_max);
+  const Corner *ap_corner = corner ? corner : corners_->corners()[0];
+  ParasiticAnalysisPt *ap = ap_corner->findParasiticAnalysisPt(ap_min_max);
   bool success = readSpefFile(filename, instance, ap,
 			      pin_cap_included, keep_coupling_caps,
-                              coupling_cap_factor,
-			      reduce_to, delete_after_reduce,
-			      op_cond, corner, cnst_min_max, quiet,
-			      report_, network_, parasitics_,
-            disable_reduce_parsitic_network_circle);
+                              coupling_cap_factor, reduce,
+			      corner, min_max, this);
   graph_delay_calc_->delaysInvalid();
   search_->arrivalsInvalid();
   return success;
 }
 
 void
-Sta::setParasiticAnalysisPts(bool per_corner,
-                             bool per_min_max)
+Sta::setParasiticAnalysisPts(bool per_corner)
 {
-  if (per_corner != parasitics_per_corner_
-      || per_min_max != parasitics_per_min_max_) {
+  if (per_corner != parasitics_per_corner_) {
     deleteParasitics();
     parasitics_per_corner_ = per_corner;
-    parasitics_per_min_max_ = per_min_max;
     makeParasiticAnalysisPts();
   }
 }
@@ -3974,8 +3981,7 @@ Sta::setParasiticAnalysisPts(bool per_corner,
 void
 Sta::makeParasiticAnalysisPts()
 {
-  corners_->makeParasiticAnalysisPts(parasitics_per_corner_,
-                                     parasitics_per_min_max_);
+  corners_->makeParasiticAnalysisPts(parasitics_per_corner_);
 }
 
 void
@@ -3983,7 +3989,6 @@ Sta::reportParasiticAnnotation(bool report_unannotated,
                                const Corner *corner)
 {
   ensureGraph();
-  findDelays();
   sta::reportParasiticAnnotation(report_unannotated, corner, this);
 }
 
@@ -4274,7 +4279,7 @@ Sta::replaceEquivCellBefore(const Instance *inst,
               if (to_set)
                 edge->setTimingArcSet(to_set);
               else
-                report_->critical(264, "corresponding timing arc set not found in equiv cells");
+                report_->critical(1553, "corresponding timing arc set not found in equiv cells");
             }
           }
         }
@@ -4478,7 +4483,7 @@ Sta::connectLoadPinAfter(Vertex *vertex)
 void
 Sta::disconnectPinBefore(const Pin *pin)
 {
-  parasitics_->disconnectPinBefore(pin);
+  parasitics_->disconnectPinBefore(pin, network_);
   sdc_->disconnectPinBefore(pin);
   sim_->disconnectPinBefore(pin);
   if (graph_) {
@@ -5231,67 +5236,40 @@ Sta::crossesHierarchy(Edge *edge) const
 
 ////////////////////////////////////////////////////////////////
 
-class InstanceMaxSlewGreater
+static Slew
+instMaxSlew(const Instance *inst,
+            Sta *sta)
 {
-public:
-  explicit InstanceMaxSlewGreater(const StaState *sta);
-  bool operator()(const Instance *inst1,
-		  const Instance *inst2) const;
-
-protected:
-  Slew instMaxSlew(const Instance *inst) const;
-  const StaState *sta_;
-};
-
-InstanceMaxSlewGreater::InstanceMaxSlewGreater(const StaState *sta) :
-  sta_(sta)
-{
-}
-
-bool
-InstanceMaxSlewGreater::operator()(const Instance *inst1,
-				   const Instance *inst2) const
-{
-  return delayGreater(instMaxSlew(inst1), instMaxSlew(inst2), sta_);
-}
-
-Slew
-InstanceMaxSlewGreater::instMaxSlew(const Instance *inst) const
-{
-  Network *network = sta_->network();
-  Graph *graph = sta_->graph();
+  Network *network = sta->network();
+  Graph *graph = sta->graph();
   Slew max_slew = 0.0;
   InstancePinIterator *pin_iter = network->pinIterator(inst);
   while (pin_iter->hasNext()) {
     Pin *pin = pin_iter->next();
     if (network->isDriver(pin)) {
       Vertex *vertex = graph->pinDrvrVertex(pin);
-      for (RiseFall *rf : RiseFall::range()) {
-	for (DcalcAnalysisPt *dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
-	  Slew slew = graph->slew(vertex, rf, dcalc_ap->index());
-	  if (delayGreater(slew, max_slew, sta_))
-	    max_slew = slew;
-	}
-      }
+      Slew slew = sta->vertexSlew(vertex, MinMax::max());
+      if (delayGreater(slew, max_slew, sta))
+        max_slew = slew;
     }
   }
   delete pin_iter;
   return max_slew;
 }
 
-SlowDrvrIterator *
-Sta::slowDrvrIterator()
+InstanceSeq
+Sta::slowDrivers(int count)
 {
-  InstanceSeq *insts = new InstanceSeq;
-  LeafInstanceIterator *leaf_iter = network_->leafInstanceIterator();
-  while (leaf_iter->hasNext()) {
-    Instance *leaf = leaf_iter->next();
-    insts->push_back(leaf);
-  }
-  delete leaf_iter;
-
-  sort(insts, InstanceMaxSlewGreater(this));
-  return new SlowDrvrIterator(insts);
+  findDelays();
+  InstanceSeq insts = network_->leafInstances();
+  sort(insts, [=] (const Instance *inst1,
+                   const Instance *inst2) {
+    return delayGreater(instMaxSlew(inst1, this),
+                        instMaxSlew(inst2, this),
+                        this);
+  });
+  insts.resize(count);
+  return insts;
 }
 
 ////////////////////////////////////////////////////////////////

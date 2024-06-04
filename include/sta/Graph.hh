@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -46,7 +46,6 @@ typedef ArrayTable<Required> RequiredsTable;
 typedef ArrayTable<PathVertexRep> PrevPathsTable;
 typedef Map<const Pin*, Vertex*> PinVertexMap;
 typedef Iterator<Edge*> VertexEdgeIterator;
-typedef Map<const Pin*, float*> WidthCheckAnnotations;
 typedef Map<const Pin*, float*> PeriodCheckAnnotations;
 typedef Vector<DelayTable*> DelayTableSeq;
 typedef ObjectId EdgeId;
@@ -115,7 +114,6 @@ public:
 			       uint32_t count);
   PathVertexRep *prevPaths(Vertex *vertex) const;
   void clearPrevPaths();
-  // Slews are reported slews in seconds.
   // Reported slew are the same as those in the liberty tables.
   //  reported_slews = measured_slews / slew_derate_from_library
   // Measured slews are between slew_lower_threshold and slew_upper_threshold.
@@ -141,6 +139,15 @@ public:
   void makeWireEdgesThruPin(const Pin *hpin);
   virtual void makeWireEdgesFromPin(const Pin *drvr_pin);
   virtual void deleteEdge(Edge *edge);
+  // Find the edge and timing arc on a gate between in_pin and drvr_pin.
+  void gateEdgeArc(const Pin *in_pin,
+                   const RiseFall *in_rf,
+                   const Pin *drvr_pin,
+                   const RiseFall *drvr_rf,
+                   // Return values.
+                   Edge *&edge,
+                   const TimingArc *&arc) const;
+
   virtual ArcDelay arcDelay(const Edge *edge,
 			    const TimingArc *arc,
 			    DcalcAPIndex ap_index) const;
@@ -176,18 +183,11 @@ public:
   int edgeCount() { return edges_->size(); }
   virtual int arcCount() { return arc_count_; }
 
-  // Sdf width check annotation.
-  void widthCheckAnnotation(const Pin *pin,
-			    const RiseFall *rf,
-			    DcalcAPIndex ap_index,
-			    // Return values.
-			    float &width,
-			    bool &exists);
-  void setWidthCheckAnnotation(const Pin *pin,
-			       const RiseFall *rf,
-			       DcalcAPIndex ap_index,
-			       float width);
-
+  void minPulseWidthArc(Vertex *vertex,
+                        const RiseFall *hi_low,
+                        // Return values.
+                        Edge *&edge,
+                        TimingArc *&arc);
   // Sdf period check annotation.
   void periodCheckAnnotation(const Pin *pin,
 			     DcalcAPIndex ap_index,
@@ -213,13 +213,14 @@ protected:
   void makePinVertices(const Instance *inst);
   void makeWireEdgesFromPin(const Pin *drvr_pin,
 			    PinSet &visited_drvrs);
+  bool isIsolatedNet(PinSeq &drvrs,
+                     PinSeq &loads) const;
   void makeWireEdges();
   virtual void makeInstDrvrWireEdges(const Instance *inst,
 				     PinSet &visited_drvrs);
   virtual void makePortInstanceEdges(const Instance *inst,
 				     LibertyCell *cell,
                                      LibertyPort *from_to_port);
-  void removeWidthCheckAnnotations();
   void removePeriodCheckAnnotations();
   void makeSlewTables(DcalcAPIndex count);
   void deleteSlewTables();
@@ -254,8 +255,6 @@ protected:
   DelayTableSeq slew_tables_;	      // [ap_index][tr_index][vertex_id]
   VertexId slew_count_;
   DelayTableSeq arc_delays_;	      // [ap_index][edge_arc_index]
-  // Sdf width check annotations.
-  WidthCheckAnnotations *width_check_annotations_;
   // Sdf period check annotations.
   PeriodCheckAnnotations *period_check_annotations_;
   // Register/latch clock vertices to search from.
@@ -281,6 +280,8 @@ public:
   Level level() const { return level_; }
   void setLevel(Level level);
   bool isRoot() const{ return level_ == 0; }
+  bool hasFanin() const;
+  bool hasFanout() const;
   LevelColor color() const { return static_cast<LevelColor>(color_); }
   void setColor(LevelColor color);
   ArrivalId arrivals() { return arrivals_; }

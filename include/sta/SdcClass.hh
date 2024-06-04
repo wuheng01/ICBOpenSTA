@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -75,7 +75,9 @@ public:
 typedef Vector<float> FloatSeq;
 typedef Vector<int> IntSeq;
 typedef Vector<Clock*> ClockSeq;
+typedef std::vector<const Clock*> ConstClockSeq;
 typedef Set<Clock*, ClockIndexLess> ClockSet;
+typedef std::set<const Clock*, ClockIndexLess> ConstClockSet;
 typedef ClockSet ClockGroup;
 typedef Vector<PinSet*> PinSetSeq;
 typedef MinMax SetupHold;

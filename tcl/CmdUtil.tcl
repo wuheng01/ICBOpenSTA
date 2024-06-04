@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2023, Parallax Software, Inc.
+# Copyright (c) 2024, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ proc_redirect help {
       show_cmd_args $cmd
     }
   } else {
-    sta_warn 300 "no commands match '$pattern'."
+    sta_warn 160 "no commands match '$pattern'."
   }
 }
 
@@ -69,7 +69,7 @@ proc show_cmd_args { cmd } {
       }
       set arglist $rest
     } else {
-      report_line $line
+      report_line "$line $arglist"
       break
     }
   }
@@ -86,9 +86,9 @@ proc cmd_usage_error { cmd } {
   variable cmd_args
 
   if [info exists cmd_args($cmd)] {
-    sta_error 404 "Usage: $cmd $cmd_args($cmd)"
+    sta_error 161 "Usage: $cmd $cmd_args($cmd)"
   } else {
-    sta_error 405 "Usage: $cmd argument error"
+    sta_error 162 "Usage: $cmd argument error"
   }
 }
 
@@ -140,26 +140,26 @@ proc set_cmd_units { args } {
   set_unit_values "distance" -distance "m" keys
 }
 
-proc set_unit_values { unit key unit_name key_var } {
+proc set_unit_values { unit key suffix key_var } {
   upvar 1 $key_var keys
   if { [info exists keys($key)] } {
     set value $keys($key)
-    if { [string equal -nocase $value $unit_name] } {
-      set_cmd_unit_scale $unit 1.0
-    } else {
-      set prefix [string index $value 0]
-      set suffix [string range $value 1 end]
-      # unit includes "1" prefix
-      if { [string is digit $prefix] } {
-	set prefix [string index $value 1]
-	set suffix [string range $value 2 end]
-      }
-      if { [string equal -nocase $suffix $unit_name] } {
-	set scale [unit_prefix_scale $unit $prefix]
-	set_cmd_unit_scale $unit $scale
+    set suffix_length [string length $suffix]
+    set arg_suffix [string range $value end-[expr $suffix_length - 1] end]
+    if { [string match -nocase $arg_suffix $suffix] } {
+      set arg_prefix [string range $value 0 end-$suffix_length]
+      if { [regexp "^(10*)?(\[Mkmunpf\])?$" $arg_prefix ignore mult prefix] } {
+        #puts "$arg_prefix '$mult' '$prefix'"
+        if { $mult == "" } {
+          set mult 1
+        }
+        set scale [unit_prefix_scale $unit $prefix ]
+        set_cmd_unit_scale $unit $scale
       } else {
-	sta_error 515 "unknown $unit unit '$suffix'."
+        sta_error 343 "unknown unit $unit prefix '${arg_prefix}'."
       }
+    } else {
+      sta_error 501 "incorrect unit suffix '$arg_suffix'."
     }
     if [info exists keys(-digits)] {
       set_cmd_unit_digits $unit $keys(-digits)
@@ -206,7 +206,7 @@ proc delete_objects_from_list_cmd { list objects } {
       } elseif {$list_type == "LibertyPort"} {
 	set obj [get_lib_pins $obj]
       } else {
-	sta_error 439 "unsupported object type $list_type."
+	sta_error 164 "unsupported object type $list_type."
       }
     }
     set index [lsearch $list $obj]
@@ -223,7 +223,7 @@ proc set_cmd_namespace { namespc } {
   if { $namespc == "sdc" || $namespc == "sta" } {
     set_cmd_namespace_cmd $namespc
   } else {
-    sta_error 589 "unknown namespace $namespc."
+    sta_error 165 "unknown namespace $namespc."
   }
 }
 

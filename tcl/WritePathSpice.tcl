@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2023, Parallax Software, Inc.
+# Copyright (c) 2024, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,66 +21,69 @@ define_cmd_args "write_path_spice" { -path_args path_args\
 				       -lib_subckt_file lib_subckts_file\
 				       -model_file model_file\
 				       -power power\
-				       -ground ground}
+				       -ground ground\
+                                       [-simulator hspice|ngspice|xyce]}
 
 proc write_path_spice { args } {
   parse_key_args "write_path_spice" args \
     keys {-spice_directory -lib_subckt_file -model_file \
-	    -power -ground -path_args} \
+	    -power -ground -path_args -simulator} \
     flags {}
 
   if { [info exists keys(-spice_directory)] } {
     set spice_dir [file nativename $keys(-spice_directory)]
     if { ![file exists $spice_dir] } {
-      sta_error 496 "Directory $spice_dir not found."
+      sta_error 600 "Directory $spice_dir not found."
     }
     if { ![file isdirectory $spice_dir] } {
-      sta_error 497 "$spice_dir is not a directory."
+      sta_error 601 "$spice_dir is not a directory."
     }
     if { ![file writable $spice_dir] } {
-      sta_error 498 "Cannot write in $spice_dir."
+      sta_error 602 "Cannot write in $spice_dir."
     }
   } else {
-    sta_error 499 "No -spice_directory specified."
+    sta_error 603 "No -spice_directory specified."
   }
 
   if { [info exists keys(-lib_subckt_file)] } {
     set lib_subckt_file [file nativename $keys(-lib_subckt_file)]
     if { ![file readable $lib_subckt_file] } {
-      sta_error 500 "-lib_subckt_file $lib_subckt_file is not readable."
+      sta_error 604 "-lib_subckt_file $lib_subckt_file is not readable."
     }
   } else {
-    sta_error 501 "No -lib_subckt_file specified."
+    sta_error 605 "No -lib_subckt_file specified."
   }
 
   if { [info exists keys(-model_file)] } {
     set model_file [file nativename $keys(-model_file)]
     if { ![file readable $model_file] } {
-      sta_error 502 "-model_file $model_file is not readable."
+      sta_error 606 "-model_file $model_file is not readable."
     }
   } else {
-    sta_error 503 "No -model_file specified."
+    sta_error 607 "No -model_file specified."
   }
 
   if { [info exists keys(-power)] } {
     set power $keys(-power)
   } else {
-    sta_error 504 "No -power specified."
+    sta_error 608 "No -power specified."
   }
 
   if { [info exists keys(-ground)] } {
     set ground $keys(-ground)
   } else {
-    sta_error 505 "No -ground specified."
+    sta_error 609 "No -ground specified."
   }
 
+  set ckt_sim [parse_ckt_sim_key keys]
+
   if { ![info exists keys(-path_args)] } {
-    sta_error 506 "No -path_args specified."
+    sta_error 610 "No -path_args specified."
   }
   set path_args $keys(-path_args)
   set path_ends [eval [concat find_timing_paths $path_args]]
   if { $path_ends == {} } {
-    sta_error 507 "No paths found for -path_args $path_args."
+    sta_error 611 "No paths found for -path_args $path_args."
   } else {
     set path_index 1
     foreach path_end $path_ends {
@@ -89,10 +92,26 @@ proc write_path_spice { args } {
       set spice_file [file join $spice_dir "$path_name.sp"]
       set subckt_file [file join $spice_dir "$path_name.subckt"]
       write_path_spice_cmd $path $spice_file $subckt_file \
-	$lib_subckt_file $model_file {} $power $ground
+	$lib_subckt_file $model_file $power $ground $ckt_sim
       incr path_index
     }
   }
+}
+
+set ::ckt_sims {hspice ngspice xyce}
+
+proc parse_ckt_sim_key { keys_var } {
+  upvar 1 $keys_var keys
+  global ckt_sims
+
+  set ckt_sim "ngspice"
+  if { [info exists keys(-simulator)] } {
+    set ckt_sim [file nativename $keys(-simulator)]
+    if { [lsearch $ckt_sims $ckt_sim] == -1 } {
+      sta_error 1710 "Unknown circuit simulator"
+    }
+  }
+  return $ckt_sim
 }
 
 # sta namespace end.

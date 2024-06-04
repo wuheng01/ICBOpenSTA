@@ -1,5 +1,5 @@
 # OpenSTA, Static Timing Analyzer
-# Copyright (c) 2023, Parallax Software, Inc.
+# Copyright (c) 2024, Parallax Software, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,15 +24,18 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.14)
 cmake_policy(SET CMP0086 NEW)
 endif()
 
-project(STA VERSION 2.4.0
+project(STA VERSION 2.5.0
   LANGUAGES CXX
 )
 
 option(USE_CUDD "Use CUDD BDD package")
 option(CUDD_DIR "CUDD BDD package directory")
 option(ABC_DIR  "ABC library directory" )
+option(USE_TCL_READLINE "Use TCL readliine package")
+option(USE_SANITIZE "Compile with santize address enabled")
 
-set(CMAKE_VERBOSE_MAKEFILE ON)
+# Turn on to debug compiler args.
+set(CMAKE_VERBOSE_MAKEFILE OFF)
 
 set(STA_HOME ${PROJECT_SOURCE_DIR})
 set(ABC_DIR "${PROJECT_SOURCE_DIR}/../../third-party/abc/")
@@ -69,18 +72,21 @@ set(STA_SOURCE
   app/StaMain.cc
   
   dcalc/ArcDelayCalc.cc
+  dcalc/ArcDcalcWaveforms.cc
   dcalc/ArnoldiDelayCalc.cc
   dcalc/ArnoldiReduce.cc
+  dcalc/CcsCeffDelayCalc.cc
+  dcalc/CcsSimDelayCalc.cc
   dcalc/DcalcAnalysisPt.cc
   dcalc/DelayCalc.cc
   dcalc/DelayCalcBase.cc
   dcalc/DmpCeff.cc
   dcalc/DmpDelayCalc.cc
+  dcalc/FindRoot.cc
   dcalc/GraphDelayCalc.cc
   dcalc/LumpedCapDelayCalc.cc
   dcalc/NetCaps.cc
   dcalc/ParallelDelayCalc.cc
-  dcalc/SlewDegradeDelayCalc.cc
   dcalc/UnitDelayCalc.cc
   
   graph/DelayFloat.cc
@@ -127,7 +133,6 @@ set(STA_SOURCE
   
   parasitics/ConcreteParasitics.cc
   parasitics/EstimateParasitics.cc
-  parasitics/NullParasitics.cc
   parasitics/Parasitics.cc
   parasitics/ReduceParasitics.cc
   parasitics/ReportParasiticAnnotation.cc
@@ -158,6 +163,7 @@ set(STA_SOURCE
   sdf/SdfReader.cc
   sdf/SdfWriter.cc
   
+  search/Bdd.cc
   search/Bfs.cc
   search/CheckMaxSkews.cc
   search/CheckMinPeriods.cc
@@ -167,6 +173,7 @@ set(STA_SOURCE
   search/CheckSlewLimits.cc
   search/CheckTiming.cc
   search/ClkInfo.cc
+  search/ClkLatency.cc
   search/ClkNetwork.cc
   search/ClkSkew.cc
   search/Corner.cc
@@ -201,6 +208,7 @@ set(STA_SOURCE
   search/VisitPathGroupVertices.cc
   search/WorstSlack.cc
   search/WritePathSpice.cc
+  search/WriteSpice.cc
 
   power/Power.cc
   power/ReadVcdActivities.cc
@@ -316,84 +324,6 @@ add_flex_bison_dependency(SdfLex SdfParser)
 
 ################################################################
 
-find_package(SWIG 3.0 REQUIRED)
-include(UseSWIG)
-
-set(STA_SWIG_FILE app/StaApp.i)
-
-set_property(SOURCE ${STA_SWIG_FILE}
-  PROPERTY CPLUSPLUS ON
-)
-# Ubuntu 18.04 cmake version 3.10.2 does not support the
-# COMPILE_OPTIONS and INCLUDE_DIRECTORIES properties, so cram
-# them into SWIG_FLAGS for the time being.
-set_property(SOURCE ${STA_SWIG_FILE}
-  PROPERTY SWIG_FLAGS
-  -module sta
-  -namespace -prefix sta
-  -I${STA_HOME}/tcl
-  -I${STA_HOME}/sdf
-  -I${STA_HOME}/dcalc
-  -I${STA_HOME}/parasitics
-  -I${STA_HOME}/power
-  -I${STA_HOME}/verilog
-)
-
-set_property(SOURCE ${STA_SWIG_FILE}
-  PROPERTY DEPENDS
-  ${STA_HOME}/dcalc/DelayCalc.i
-  ${STA_HOME}/parasitics/Parasitics.i
-  ${STA_HOME}/power/Power.i
-  ${STA_HOME}/sdf/Sdf.i
-  ${STA_HOME}/tcl/Exception.i
-  ${STA_HOME}/tcl/StaTcl.i
-  ${STA_HOME}/tcl/NetworkEdit.i
-  ${STA_HOME}/verilog/Verilog.i
-)
-
-swig_add_library(sta_swig
-  LANGUAGE tcl
-  TYPE STATIC
-  SOURCES ${STA_SWIG_FILE}
-)
-
-get_target_property(SWIG_FILES sta_swig SOURCES)
-
-foreach(SWIG_FILE ${SWIG_FILES})
-  set_source_files_properties(${SWIG_FILE}
-    PROPERTIES
-    # No simple way to modify the swig template that emits code full of warnings
-    # so suppress them.
-    COMPILE_OPTIONS "-Wno-cast-qual;-Wno-missing-braces;-Wno-deprecated-declarations"
-  )
-endforeach()
-
-target_link_libraries(sta_swig
-  PUBLIC
-  OpenSTA
-)
-
-# result build/CMakeFiles/sta_swig.dir/StaAppTCL_wrap.cxx
-target_include_directories(sta_swig
-  PUBLIC
-  include/sta
-
-  abclite/extra
-  abclite/global
-  abclite/kit
-  restr
-
-  ${ABC_DIR}/src/base}
-  ${ABC_DIR}/src/base/abc}  
-  ${ABC_DIR}/src
-
-  PRIVATE
-  ${STA_HOME}
-  ${TCL_INCLUDE_PATH}
-)
-
-################################################################
-
 set(STA_TCL_INIT ${CMAKE_CURRENT_BINARY_DIR}/StaTclInitVar.cc)
 
 # TCL files included as part of the executable are shoved into StaTclInitVar.cc.
@@ -419,8 +349,6 @@ add_custom_command(OUTPUT ${STA_TCL_INIT}
 # This calls cmake/FindTCL.cmake
 # Do not use REQUIRED because it also requires TK, which is not used by OpenSTA.
 find_package(TCL)
-
-option(USE_TCL_READLINE "Use TCL readliine package")
 
 set(TCL_READLINE 0)
 # check for tclReadline
@@ -450,7 +378,7 @@ include(FindZLIB)
 
 find_package(Threads)
 
-
+find_package(Eigen3 REQUIRED)
 
 ################################################################
 #
@@ -493,6 +421,80 @@ configure_file(${STA_HOME}/util/StaConfig.hh.cmake
   )
 
 ###########################################################
+# Swig
+###########################################################
+
+find_package(SWIG 3.0 REQUIRED)
+include(UseSWIG)
+
+set(STA_SWIG_FILE app/StaApp.i)
+
+set_property(SOURCE ${STA_SWIG_FILE}
+  PROPERTY CPLUSPLUS ON
+)
+# Ubuntu 18.04 cmake version 3.10.2 does not support the
+# COMPILE_OPTIONS and INCLUDE_DIRECTORIES properties, so cram
+# them into SWIG_FLAGS for the time being.
+set_property(SOURCE ${STA_SWIG_FILE}
+  PROPERTY SWIG_FLAGS
+  -module sta
+  -namespace -prefix sta
+  -I${STA_HOME}/tcl
+  -I${STA_HOME}/sdf
+  -I${STA_HOME}/dcalc
+  -I${STA_HOME}/parasitics
+  -I${STA_HOME}/power
+  -I${STA_HOME}/verilog
+)
+
+set(SWIG_FILES
+  ${STA_HOME}/dcalc/DelayCalc.i
+  ${STA_HOME}/parasitics/Parasitics.i
+  ${STA_HOME}/power/Power.i
+  ${STA_HOME}/sdf/Sdf.i
+  ${STA_HOME}/tcl/Exception.i
+  ${STA_HOME}/tcl/StaTcl.i
+  ${STA_HOME}/tcl/StaTclTypes.i
+  ${STA_HOME}/tcl/NetworkEdit.i
+  ${STA_HOME}/verilog/Verilog.i
+  )
+
+set_property(SOURCE ${STA_SWIG_FILE}
+  PROPERTY DEPENDS ${SWIG_FILES}
+)
+
+swig_add_library(sta_swig
+  LANGUAGE tcl
+  TYPE STATIC
+  SOURCES ${STA_SWIG_FILE}
+)
+
+get_target_property(STA_SWIG_CXX_FILE sta_swig SOURCES)
+
+set_source_files_properties(${STA_SWIG_CXX_FILE}
+  PROPERTIES
+  # No simple way to modify the swig template that emits code full of warnings
+  # so suppress them.
+  COMPILE_OPTIONS "-Wno-cast-qual;-Wno-missing-braces;-Wno-deprecated-declarations"
+  INCLUDE_DIRECTORIES "${CUDD_INCLUDE}"
+  )
+
+target_link_libraries(sta_swig
+  PUBLIC
+  OpenSTA
+)
+
+# result build/CMakeFiles/sta_swig.dir/StaAppTCL_wrap.cxx
+target_include_directories(sta_swig
+  PUBLIC
+  include/sta
+
+  PRIVATE
+  ${STA_HOME}
+  ${TCL_INCLUDE_PATH}
+)
+
+###########################################################
 # Library
 ###########################################################
 
@@ -523,6 +525,7 @@ target_sources(OpenSTA
 )
 
 target_link_libraries(OpenSTA
+  Eigen3::Eigen
   ${TCL_LIBRARY}
   ${CMAKE_THREAD_LIBS_INIT}
   )
@@ -562,6 +565,12 @@ target_include_directories(OpenSTA
 
 # common to gcc/clang
 set(CXX_FLAGS -Wall -Wextra -pedantic -Wcast-qual -Wredundant-decls -Wformat-security)
+
+if(USE_SANITIZE)
+  message(STATUS "Sanitize: ${USE_SANITIZE}")
+  set(CXX_FLAGS "${CXX_FLAGS};-fsanitize=address;-fno-omit-frame-pointer;-fno-common")
+  set(CMAKE_EXE_LINKER_FLAGS "-fsanitize=address")
+endif()
 
 target_compile_options(OpenSTA
   PRIVATE
@@ -629,6 +638,7 @@ add_custom_target(sta_tags etags -o TAGS
   ${STA_SOURCE}
   */*.hh
   include/sta/*.hh
+  ${SWIG_FILES}
   ${STA_TCL_FILES}
   ${SWIG_TCL_FILES}
   WORKING_DIRECTORY ${STA_HOME}

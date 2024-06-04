@@ -1,5 +1,5 @@
 // OpenSTA, Static Timing Analyzer
-// Copyright (c) 2023, Parallax Software, Inc.
+// Copyright (c) 2024, Parallax Software, Inc.
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -345,14 +345,14 @@ funcExprNot(FuncExpr *expr)
 
 ////////////////////////////////////////////////////////////////
 
-FuncExprPortIterator::FuncExprPortIterator(FuncExpr *expr)
+FuncExprPortIterator::FuncExprPortIterator(const FuncExpr *expr)
 {
   findPorts(expr);
   iter_.init(ports_);
 }
 
 void
-FuncExprPortIterator::findPorts(FuncExpr *expr)
+FuncExprPortIterator::findPorts(const FuncExpr *expr)
 {
   if (expr) {
     if (expr->op() == FuncExpr::op_port)
