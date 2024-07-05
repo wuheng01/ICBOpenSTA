@@ -88,6 +88,7 @@ set(STA_SOURCE
   dcalc/NetCaps.cc
   dcalc/ParallelDelayCalc.cc
   dcalc/UnitDelayCalc.cc
+  dcalc/SimpleRCDelayCalc.cc
   
   graph/DelayFloat.cc
   graph/DelayNormal1.cc
