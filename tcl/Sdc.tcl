@@ -29,6 +29,7 @@ namespace eval sta {
 define_cmd_args "read_sdc" {[-echo] filename}
 
 proc_redirect read_sdc {
+  laurel_record_command read_sdc {*}$args
   parse_key_args "read_sdc" args keys {} flags {-echo}
 
   check_argc_eq1 "read_sdc" $args
@@ -3681,6 +3682,7 @@ proc set_max_leakage_power { power {unit {}} } {
 define_cmd_args "define_corners" { corner1 [corner2]... }
 
 proc define_corners { args } {
+  laurel_record_command define_corners {*}$args
   if { [get_libs -quiet *] != {} } {
     sta_error 482 "define_corners must be called before read_liberty."
   }

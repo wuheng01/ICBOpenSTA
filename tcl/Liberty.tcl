@@ -22,6 +22,7 @@ define_cmd_args "read_liberty" \
   {[-corner corner] [-min] [-max] [-infer_latches] filename}
 
 proc_redirect read_liberty {
+  laurel_record_command read_liberty {*}$args
   parse_key_args "read_liberty" args keys {-corner} \
     flags {-min -max -infer_latches}
   check_argc_eq1 "read_liberty" $args

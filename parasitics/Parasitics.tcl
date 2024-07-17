@@ -29,6 +29,7 @@ define_cmd_args "read_spef" \
      filename}
 
 proc_redirect read_spef {
+  laurel_record_command read_spef {*}$args
   parse_key_args "read_spef" args \
     keys {-path -coupling_reduction_factor -reduce_to -corner} \
     flags {-min -max -increment -pin_cap_included -keep_capacitive_coupling \
