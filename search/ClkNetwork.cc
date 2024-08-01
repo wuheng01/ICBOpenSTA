@@ -23,12 +23,15 @@
 #include "Sdc.hh"
 #include "SearchPred.hh"
 #include "Search.hh"
+#include "Sta.hh"
+#include "tcl.h"
 
 namespace sta {
 
 ClkNetwork::ClkNetwork(StaState *sta) :
   StaState(sta),
-  clk_pins_valid_(false)
+  clk_pins_valid_(false),
+  sta_((Sta*)sta)
 {
 }
 
@@ -40,8 +43,11 @@ ClkNetwork::~ClkNetwork()
 void
 ClkNetwork::ensureClkNetwork()
 {
-  if (!clk_pins_valid_)
-    findClkPins();
+  if (!clk_pins_valid_) {
+      findClkPins();
+      Tcl_Eval(sta_->tclInterp(),"lrl_patch_sta_clock_pins");
+      //todo patch clock pins 
+  }
 }
 
 void

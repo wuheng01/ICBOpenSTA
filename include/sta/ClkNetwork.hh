@@ -57,7 +57,6 @@ protected:
   void disconnectPinBefore(const Pin *pin);
   friend class Sta;
 
-private:
   void findClkPins();
   void findClkPins(bool ideal_only,
 		   PinClksMap &clk_pin_map);
@@ -69,6 +68,7 @@ private:
   PinClksMap pin_ideal_clks_map_;
   // clock -> pins
   ClkPinsMap clk_pins_map_;
+  Sta* sta_;
 };
 
 } // namespace
